@@ -1,0 +1,17 @@
+# Local development helpers:  docker compose up -d
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports: ["27017:27017"]
+    volumes: ["mongo-data:/data/db"]
+
+  # Optional local TURN server (needed to test calls across different networks / symmetric NAT)
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host
+    volumes: ["./deploy/coturn/turnserver.dev.conf:/etc/coturn/turnserver.conf:ro"]
+
+volumes:
+  mongo-data:

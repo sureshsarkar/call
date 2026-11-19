@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #00a884;
+  --color-brand-dark: #008069;
+  --color-bg: #0b141a;
+  --color-panel: #111b21;
+  --color-panel2: #202c33;
+  --color-panel3: #2a3942;
+  --color-line: #222d34;
+  --color-ink: #e9edef;
+  --color-mute: #8696a0;
+  --color-bubble-out: #005c4b;
+  --color-bubble-in: #202c33;
+  --color-danger: #ea4335;
+  --font-sans: Inter, "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Color Emoji", sans-serif;
+}
+
+html, body, #root { min-height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--color-bg); color: var(--color-ink); font-family: var(--font-sans); -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+.h-dvh-safe { height: var(--app-h, 100dvh); }
+
+/* scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #374248 transparent; }
+
+.chat-wallpaper {
+  background-color: #0b141a;
+  background-image: radial-gradient(rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.emoji-only { font-size: 2.2rem; line-height: 1.15; }
+@layer components {
+.btn-icon { display:inline-flex; align-items:center; justify-content:center; border-radius:9999px; transition: background .15s, transform .1s; }
+.btn-icon:hover { background: rgba(255,255,255,.08); }
+.btn-icon:active { transform: scale(.94); }
+.input { min-height:48px; width:100%; background: var(--color-panel2); border:1px solid transparent; border-radius:.6rem; padding:.7rem .9rem; color: var(--color-ink); outline:none; transition: border-color .15s; }
+.input:focus { border-color: var(--color-brand); }
+.input::placeholder { color: var(--color-mute); }
+.btn-primary { min-height:48px; background: var(--color-brand); color:#06110e; font-weight:600; border-radius:.6rem; padding:.7rem 1rem; transition: filter .15s; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:disabled { opacity:.6; cursor:not-allowed; }
+}
+
+@keyframes ringPulse { 0% { box-shadow: 0 0 0 0 rgba(0,168,132,.55);} 100% { box-shadow: 0 0 0 28px rgba(0,168,132,0);} }
+.ring-pulse { animation: ringPulse 1.4s infinite; }
+@keyframes pop { from { transform: scale(.96); opacity:0 } to { transform: scale(1); opacity:1 } }
+.pop-in { animation: pop .15s ease-out; }
+@keyframes bounce3 { 0%,80%,100% { transform: translateY(0); opacity:.5 } 40% { transform: translateY(-4px); opacity:1 } }
+.dot { width:6px; height:6px; border-radius:9999px; background: var(--color-mute); display:inline-block; animation: bounce3 1.2s infinite; }
+.dot:nth-child(2){ animation-delay:.15s } .dot:nth-child(3){ animation-delay:.3s }
+
+/* ---------- native-app feel (mobile) ---------- */
+.pt-safe { padding-top: calc(env(safe-area-inset-top) + .5rem); }
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom) + .5rem); }
+.pb-safe-0 { padding-bottom: env(safe-area-inset-bottom); }
+.pl-safe { padding-left: env(safe-area-inset-left); }
+.pr-safe { padding-right: env(safe-area-inset-right); }
+
+@media (max-width: 767px) {
+  body { overscroll-behavior-y: none; touch-action: manipulation; -webkit-touch-callout: none; }
+  /* UI chrome is not selectable like a native app; inputs and message text (via Copy) still work */
+  body, button, [role="button"], nav, header { -webkit-user-select: none; user-select: none; }
+  input, textarea, select { -webkit-user-select: text; user-select: text; font-size: 16px !important; } /* 16px stops iOS zoom-on-focus */
+  button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
+  .press:active { transform: scale(.97); background: rgba(255,255,255,.06); }
+}
+.press { transition: transform .08s, background .12s; }
+
+@keyframes slideInRight { from { transform: translateX(28px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes slideUp { from { transform: translateY(100%) } to { transform: none } }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@media (max-width: 767px) { .slide-in { animation: slideInRight .22s cubic-bezier(.2,.8,.2,1); } }
+.sheet-up { animation: slideUp .26s cubic-bezier(.2,.8,.2,1); }
+.fade-in { animation: fadeIn .18s ease-out; }
+@media (max-width: 767px) { .sheet-up-m { animation: slideUp .26s cubic-bezier(.2,.8,.2,1); } }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+@media (prefers-reduced-motion: reduce) { .slide-in, .sheet-up-m, .sheet-up, .fade-in, .pop-in, .ring-pulse { animation: none !important; } }

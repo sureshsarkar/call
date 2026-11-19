@@ -1,0 +1,494 @@
+// Orchestrates a one-to-one WebRTC call. Socket.IO carries signaling only; media flows peer-to-peer
+// (or through TURN when NAT blocks it). Implements the "perfect negotiation" pattern so that
+// renegotiation (ICE restart, adding tracks) from either side never deadlocks on glare.
+import toast from 'react-hot-toast';
+import { getSocket, emitAck } from '../socket/socket';
+import { callApi } from '../services/api';
+import { useCallStore, resetCallStore } from '../context/callStore';
+import { useSettingsStore } from '../context/settingsStore';
+import { startRingtone, stopRingtone, playEnd } from '../utils/sounds';
+import { systemNotify } from '../utils/notify';
+import { formatDuration } from '../utils/format';
+import {
+  getCallMedia, mediaErrorMessage, screenErrorMessage, stopStream, listDevices,
+  canShareScreen, audioConstraints, videoConstraints,
+} from './media';
+import { createRnnoisePipeline } from './audioProcessing';
+
+const FALLBACK_ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+const RECONNECT_TIMEOUT_MS = 25_000;
+const set = (patch) => useCallStore.setState(patch);
+const get = () => useCallStore.getState();
+
+class CallManager {
+  constructor() {
+    this.resetInternals();
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', () => this.refreshDevices());
+    }
+  }
+
+  resetInternals() {
+    this.pc = null;
+    this.iceServers = FALLBACK_ICE;
+    this.polite = false;
+    this.ready = false; // may we create offers yet?
+    this.makingOffer = false;
+    this.ignoreOffer = false;
+    this.pendingCandidates = [];
+    this.rawStream = null; // microphone (+camera) as captured
+    this.audioPipeline = null;
+    this.sendAudioTrack = null;
+    this.cameraTrack = null;
+    this.screenStream = null;
+    this.screenTrack = null;
+    this.audioSender = null;
+    this.videoSender = null;
+    this.remoteStream = null;
+    this.reconnectTimer = null;
+    this.ending = false;
+  }
+
+  get busy() { return get().status !== 'idle'; }
+
+  // ------------------------------------------------------------------ media
+  async refreshDevices() {
+    set({ devices: await listDevices() });
+  }
+
+  /** Captures media; optionally routes the mic through the RNNoise pipeline. */
+  async setupMedia(type) {
+    const prefs = useSettingsStore.getState();
+    const { stream, cameraMissing, cameraError } = await getCallMedia(type, { micId: prefs.micId, camId: prefs.camId, facing: get().facing });
+    this.rawStream = stream;
+    this.cameraTrack = stream.getVideoTracks()[0] || null;
+    if (this.cameraTrack) this.cameraTrack.contentHint = 'motion';
+
+    const micTrack = stream.getAudioTracks()[0];
+    this.sendAudioTrack = micTrack;
+    let advancedNoiseActive = false;
+    if (prefs.advancedNoise) {
+      try {
+        this.audioPipeline = await createRnnoisePipeline(micTrack);
+        this.sendAudioTrack = this.audioPipeline.track;
+        advancedNoiseActive = true;
+      } catch (err) {
+        console.warn('[call] RNNoise unavailable, using browser noise suppression', err);
+        toast('Advanced noise cancellation is unavailable here — using standard noise suppression.', { icon: 'ℹ️' });
+      }
+    }
+    this.sendAudioTrack.contentHint = 'speech';
+
+    if (cameraMissing) toast(mediaErrorMessage(cameraError, 'camera') + ' Continuing with audio only.', { icon: '📷' });
+    set({
+      localStream: this.cameraTrack ? new MediaStream([this.cameraTrack]) : null,
+      noCamera: !this.cameraTrack && type === 'video',
+      cameraOff: false,
+      muted: false,
+      advancedNoiseActive,
+    });
+    this.refreshDevices(); // labels become available after permission is granted
+  }
+
+  async loadIceServers() {
+    try {
+      const servers = await callApi.iceServers();
+      this.iceServers = servers?.length ? servers : FALLBACK_ICE;
+    } catch {
+      this.iceServers = FALLBACK_ICE;
+    }
+  }
+
+  // ------------------------------------------------------------------ peer connection
+  createPeerConnection() {
+    const socket = getSocket();
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers, bundlePolicy: 'max-bundle', iceCandidatePoolSize: 2 });
+    this.pc = pc;
+    this.remoteStream = new MediaStream();
+
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) socket?.emit('ice_candidate', { callId: get().callId, candidate: candidate.toJSON() });
+    };
+
+    pc.ontrack = ({ track, streams }) => {
+      // keep a single MediaStream and add tracks to it so <video> never needs re-binding
+      (streams[0] ? streams[0].getTracks() : [track]).forEach((t) => {
+        if (!this.remoteStream.getTracks().includes(t)) this.remoteStream.addTrack(t);
+      });
+      set({ remoteStream: this.remoteStream });
+    };
+
+    pc.onnegotiationneeded = async () => {
+      if (!this.ready) return; // callee waits for the caller's first offer
+      try {
+        this.makingOffer = true;
+        await pc.setLocalDescription();
+        socket?.emit('webrtc_offer', { callId: get().callId, description: pc.localDescription });
+      } catch (err) {
+        console.error('[call] negotiation failed', err);
+      } finally {
+        this.makingOffer = false;
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => this.onIceState(pc.iceConnectionState);
+
+    // add outgoing tracks
+    const stream = this.rawStream;
+    this.audioSender = pc.addTrack(this.sendAudioTrack, stream);
+    if (this.cameraTrack) this.videoSender = pc.addTrack(this.cameraTrack, stream);
+  }
+
+  onIceState(state) {
+    const { status } = get();
+    if (status === 'idle') return;
+    if (state === 'connected' || state === 'completed') {
+      clearTimeout(this.reconnectTimer);
+      set({ status: 'connected', connectedAt: get().connectedAt || Date.now() });
+    } else if (state === 'disconnected' || state === 'failed') {
+      if (status === 'connected' || status === 'reconnecting') set({ status: 'reconnecting' });
+      if (state === 'failed' || state === 'disconnected') {
+        try { this.pc?.restartIce(); } catch { /* closed */ }
+      }
+      if (!this.reconnectTimer) {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          const s = this.pc?.iceConnectionState;
+          if (s !== 'connected' && s !== 'completed') this.end('connection_lost');
+        }, RECONNECT_TIMEOUT_MS);
+      }
+    }
+  }
+
+  async flushCandidates() {
+    const queued = this.pendingCandidates;
+    this.pendingCandidates = [];
+    for (const c of queued) {
+      try { await this.pc.addIceCandidate(c); } catch (err) { if (!this.ignoreOffer) console.warn('[call] candidate', err); }
+    }
+  }
+
+  // ------------------------------------------------------------------ public API: start / accept / reject / end
+  async start(peer, type) {
+    if (this.busy) return toast.error('You are already in a call');
+    if (!getSocket()?.connected) return toast.error('Not connected to the server. Please wait…');
+    set({ status: 'outgoing', peer, type, isCaller: true, callId: null, connectedAt: null });
+    this.resetInternals();
+    try {
+      await this.setupMedia(type);
+    } catch (err) {
+      toast.error(mediaErrorMessage(err));
+      return this.cleanup();
+    }
+    if (get().status !== 'outgoing') { this.cleanup(); return undefined; } // cancelled while the camera started
+    await this.loadIceServers();
+    if (get().status !== 'outgoing') { this.cleanup(); return undefined; }
+
+    const res = await emitAck('incoming_call', { to: peer._id, type });
+    if (!res.ok) {
+      toast.error(res.error || 'Could not place the call');
+      return this.cleanup();
+    }
+    set({ callId: res.callId });
+    this.polite = false; // caller is the impolite peer
+    if (useSettingsStore.getState().sounds) startRingtone(false);
+    return undefined;
+  }
+
+  async accept() {
+    const { status, type, callId } = get();
+    if (status !== 'incoming') return;
+    stopRingtone();
+    set({ status: 'connecting', isCaller: false });
+    this.resetInternals();
+    try {
+      await this.setupMedia(type);
+    } catch (err) {
+      toast.error(mediaErrorMessage(err));
+      getSocket()?.emit('reject_call', { callId });
+      return this.cleanup();
+    }
+    await this.loadIceServers();
+    this.polite = true; // callee is the polite peer
+    this.ready = false;
+    this.createPeerConnection();
+    const res = await emitAck('accept_call', { callId });
+    if (!res.ok) {
+      toast.error(res.error || 'The call is no longer available');
+      return this.cleanup();
+    }
+    return undefined;
+  }
+
+  reject() {
+    const { callId, status } = get();
+    if (status !== 'incoming') return;
+    getSocket()?.emit('reject_call', { callId });
+    this.cleanup();
+  }
+
+  /** Hang up (or cancel while ringing). */
+  end(reason = 'ended') {
+    const { callId, status, connectedAt } = get();
+    if (status === 'idle' || this.ending) return;
+    this.ending = true;
+    if (callId) getSocket()?.emit('end_call', { callId });
+    const dur = connectedAt ? ` · ${formatDuration((Date.now() - connectedAt) / 1000)}` : '';
+    if (reason === 'connection_lost') toast.error('Call ended: connection lost');
+    else if (status === 'connected' || status === 'reconnecting') toast(`Call ended${dur}`, { icon: '📞' });
+    this.cleanup();
+  }
+
+  /** Release every resource: peer connection, tracks, audio graph, timers, ringtone. */
+  cleanup() {
+    stopRingtone();
+    clearTimeout(this.reconnectTimer);
+    if (this.pc) {
+      this.pc.onicecandidate = this.pc.ontrack = this.pc.onnegotiationneeded = this.pc.oniceconnectionstatechange = null;
+      this.pc.getSenders().forEach((s) => { try { s.track && s.replaceTrack(null); } catch { /* ignore */ } });
+      this.pc.close();
+    }
+    stopStream(this.rawStream);
+    stopStream(this.screenStream);
+    this.audioPipeline?.destroy();
+    this.sendAudioTrack?.stop();
+    this.cameraTrack?.stop();
+    this.screenTrack?.stop();
+    this.resetInternals();
+    resetCallStore();
+    window.dispatchEvent(new Event('pulse:call-ended'));
+  }
+
+  // ------------------------------------------------------------------ in-call controls
+  toggleMute() {
+    if (!this.sendAudioTrack) return;
+    const muted = !get().muted;
+    this.sendAudioTrack.enabled = !muted;
+    set({ muted });
+    this.broadcastMediaState();
+  }
+
+  toggleCamera() {
+    if (!this.cameraTrack) return toast.error('No camera available');
+    const cameraOff = !get().cameraOff;
+    this.cameraTrack.enabled = !cameraOff;
+    set({ cameraOff });
+    this.broadcastMediaState();
+  }
+
+  broadcastMediaState() {
+    const { callId, muted, cameraOff } = get();
+    getSocket()?.emit('call_media_state', { callId, audio: !muted, video: !cameraOff });
+  }
+
+  async switchCamera() {
+    if (!this.cameraTrack || get().type !== 'video') return;
+    const facing = get().facing === 'user' ? 'environment' : 'user';
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: videoConstraints({ facingMode: facing }) });
+      await this.swapCameraTrack(s.getVideoTracks()[0]);
+      set({ facing });
+    } catch (err) {
+      toast.error(mediaErrorMessage(err, 'camera'));
+    }
+  }
+
+  async changeCamera(deviceId) {
+    useSettingsStore.getState().update({ camId: deviceId });
+    if (!this.cameraTrack) return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { ...videoConstraints({ deviceId }), deviceId: { exact: deviceId } } });
+      await this.swapCameraTrack(s.getVideoTracks()[0]);
+    } catch (err) {
+      toast.error(mediaErrorMessage(err, 'camera'));
+    }
+  }
+
+  async swapCameraTrack(newTrack) {
+    newTrack.enabled = !get().cameraOff;
+    newTrack.contentHint = 'motion';
+    const old = this.cameraTrack;
+    this.cameraTrack = newTrack;
+    if (!get().sharing) {
+      await this.videoSender?.replaceTrack(newTrack);
+      set({ localStream: new MediaStream([newTrack]) });
+    }
+    old?.stop();
+  }
+
+  async changeMic(deviceId) {
+    useSettingsStore.getState().update({ micId: deviceId });
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { ...audioConstraints(), deviceId: { exact: deviceId } } });
+      const mic = s.getAudioTracks()[0];
+      let outTrack = mic;
+      const oldPipeline = this.audioPipeline;
+      this.audioPipeline = null;
+      if (get().advancedNoiseActive) {
+        try { this.audioPipeline = await createRnnoisePipeline(mic); outTrack = this.audioPipeline.track; } catch { /* fall back to raw */ }
+      }
+      outTrack.enabled = !get().muted;
+      outTrack.contentHint = 'speech';
+      await this.audioSender?.replaceTrack(outTrack);
+      this.rawStream?.getAudioTracks().forEach((t) => t.stop());
+      oldPipeline?.destroy();
+      this.sendAudioTrack = outTrack;
+      this.rawStream = new MediaStream([mic, ...(this.rawStream?.getVideoTracks() || [])]);
+    } catch (err) {
+      toast.error(mediaErrorMessage(err, 'microphone'));
+    }
+  }
+
+  changeSpeaker(deviceId) {
+    useSettingsStore.getState().update({ speakerId: deviceId });
+    window.dispatchEvent(new Event('pulse:speaker-changed'));
+  }
+
+  // ------------------------------------------------------------------ screen sharing
+  async startScreenShare() {
+    if (get().type !== 'video') return toast.error('Screen sharing is available in video calls');
+    if (get().sharing) return undefined;
+    if (!canShareScreen()) return toast.error('Screen sharing is not supported on this device or browser');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 15, max: 30 }, cursor: 'always' },
+        audio: false,
+      });
+    } catch (err) {
+      return toast.error(screenErrorMessage(err));
+    }
+    const track = stream.getVideoTracks()[0];
+    track.contentHint = 'detail'; // favor sharpness over frame rate for text
+    track.onended = () => this.stopScreenShare(); // user clicked the browser's "Stop sharing"
+    this.screenStream = stream;
+    this.screenTrack = track;
+
+    if (this.videoSender) await this.videoSender.replaceTrack(track);
+    else this.videoSender = this.pc.addTrack(track, stream); // audio-only fallback: renegotiates
+    set({ sharing: true, localStream: new MediaStream([track]) });
+    getSocket()?.emit('start_screen_share', { callId: get().callId });
+    return undefined;
+  }
+
+  async stopScreenShare() {
+    if (!get().sharing) return;
+    const track = this.screenTrack;
+    this.screenTrack = null;
+    if (track) track.onended = null;
+    try {
+      if (this.cameraTrack && this.videoSender) await this.videoSender.replaceTrack(this.cameraTrack);
+      else if (this.videoSender && this.pc) { this.pc.removeTrack(this.videoSender); this.videoSender = null; }
+    } catch (err) { console.warn('[call] restoring camera failed', err); }
+    stopStream(this.screenStream);
+    this.screenStream = null;
+    set({ sharing: false, localStream: this.cameraTrack ? new MediaStream([this.cameraTrack]) : null });
+    getSocket()?.emit('stop_screen_share', { callId: get().callId });
+  }
+
+  async toggleScreenShare() {
+    return get().sharing ? this.stopScreenShare() : this.startScreenShare();
+  }
+
+  // ------------------------------------------------------------------ socket event handlers
+  bind(socket) {
+    socket.on('incoming_call', ({ callId, type, from }) => {
+      if (this.busy) { socket.emit('reject_call', { callId }); return; }
+      set({ status: 'incoming', callId, type, peer: from, isCaller: false, connectedAt: null, remoteSharing: false, remoteMuted: false, remoteCameraOff: false, peerStatus: 'ok' });
+      if (useSettingsStore.getState().sounds) startRingtone(true);
+      systemNotify(`Incoming ${type} call`, `${from.name} is calling you`, { tag: `call-${callId}` });
+    });
+
+    socket.on('accept_call', ({ callId }) => {
+      if (callId !== get().callId || get().status !== 'outgoing') return;
+      stopRingtone();
+      set({ status: 'connecting' });
+      this.ready = true;
+      this.createPeerConnection(); // adding tracks fires negotiationneeded -> first offer
+    });
+
+    socket.on('reject_call', ({ callId }) => {
+      if (callId !== get().callId) return;
+      toast(`${get().peer?.name || 'User'} declined the call`, { icon: '🚫' });
+      this.cleanup();
+    });
+
+    socket.on('end_call', ({ callId, reason }) => {
+      if (callId !== get().callId) return;
+      const { status, connectedAt, peer } = get();
+      const dur = connectedAt ? ` · ${formatDuration((Date.now() - connectedAt) / 1000)}` : '';
+      if (status === 'connected' || status === 'reconnecting') toast(`Call ended${dur}`, { icon: '📞' });
+      else if (reason === 'no_answer') toast(`${peer?.name || 'User'} did not answer`, { icon: '⏰' });
+      else if (reason === 'cancelled') toast(`Missed call from ${peer?.name || 'user'}`, { icon: '📵' });
+      else if (reason === 'connection_lost') toast.error('Call ended: connection lost');
+      else if (reason === 'rejected') toast(`${peer?.name || 'User'} declined the call`, { icon: '🚫' });
+      if (useSettingsStore.getState().sounds) playEnd();
+      this.ending = true;
+      this.cleanup();
+    });
+
+    socket.on('call_handled', ({ callId }) => {
+      if (callId === get().callId && get().status === 'incoming') this.cleanup(); // answered on another tab/device
+    });
+
+    socket.on('webrtc_offer', async ({ callId, description }) => {
+      if (callId !== get().callId || !this.pc) return;
+      const pc = this.pc;
+      try {
+        const collision = this.makingOffer || pc.signalingState !== 'stable';
+        this.ignoreOffer = !this.polite && collision;
+        if (this.ignoreOffer) return;
+        await pc.setRemoteDescription(description); // polite peer implicitly rolls back its own offer
+        this.ready = true;
+        await this.flushCandidates();
+        await pc.setLocalDescription();
+        socket.emit('webrtc_answer', { callId, description: pc.localDescription });
+      } catch (err) {
+        console.error('[call] failed to handle offer', err);
+      }
+    });
+
+    socket.on('webrtc_answer', async ({ callId, description }) => {
+      if (callId !== get().callId || !this.pc) return;
+      try {
+        if (this.pc.signalingState === 'have-local-offer') {
+          await this.pc.setRemoteDescription(description);
+          await this.flushCandidates();
+        }
+      } catch (err) {
+        console.error('[call] failed to handle answer', err);
+      }
+    });
+
+    socket.on('ice_candidate', async ({ callId, candidate }) => {
+      if (callId !== get().callId || !this.pc || !candidate) return;
+      if (!this.pc.remoteDescription) { this.pendingCandidates.push(candidate); return; }
+      try { await this.pc.addIceCandidate(candidate); } catch (err) { if (!this.ignoreOffer) console.warn('[call] candidate', err); }
+    });
+
+    socket.on('start_screen_share', ({ callId }) => callId === get().callId && set({ remoteSharing: true }));
+    socket.on('stop_screen_share', ({ callId }) => callId === get().callId && set({ remoteSharing: false }));
+    socket.on('call_media_state', ({ callId, audio, video }) => {
+      if (callId === get().callId) set({ remoteMuted: !audio, remoteCameraOff: !video });
+    });
+    socket.on('call_peer_status', ({ callId, status }) => {
+      if (callId === get().callId) set({ peerStatus: status === 'disconnected' ? 'disconnected' : 'ok' });
+    });
+
+    // Our own socket dropped and came back: verify the call still exists and kick ICE.
+    // (uses the socket's own 'connect' event: the manager-level 'reconnect' fires before the socket is usable)
+    socket.on('connect', async () => {
+      const { callId, status } = get();
+      const inCall = callId && status !== 'idle' && status !== 'incoming';
+      // always report our call state so the server can drop ghost calls left over from a page reload
+      const res = await emitAck('rejoin_call', { callId: inCall ? callId : null });
+      if (!inCall) return;
+      if (!res.ok) { toast('Call ended while you were offline', { icon: '📞' }); this.cleanup(); return; }
+      const s = this.pc?.iceConnectionState;
+      if (this.pc && s !== 'connected' && s !== 'completed') { try { this.pc.restartIce(); } catch { /* ignore */ } }
+    });
+  }
+}
+
+export const callManager = new CallManager();
+export default callManager;
