@@ -16,6 +16,7 @@ const messageSchema = new mongoose.Schema(
     conversation: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     receiver: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    reply_to_message_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
     text: { type: String, default: '', maxlength: 4000 },
     links: [linkSchema],
     status: { type: String, enum: ['sent', 'delivered', 'seen'], default: 'sent' },

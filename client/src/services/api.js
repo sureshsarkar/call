@@ -53,6 +53,7 @@ export const userApi = {
 export const chatApi = {
   conversations: () => api.get('/conversations').then((r) => r.data.conversations),
   history: (userId, before) => api.get(`/messages/with/${userId}`, { params: { before, limit: 40 } }).then((r) => r.data),
+  getMessage: (id) => api.get(`/messages/${id}`).then((r) => r.data.message),
   search: (q) => api.get('/messages/search', { params: { q } }).then((r) => r.data.results),
   remove: (id, scope) => api.delete(`/messages/${id}`, { params: { scope } }).then((r) => r.data),
 };

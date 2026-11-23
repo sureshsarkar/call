@@ -4,6 +4,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { escapeRegex } = require('../utils/text');
 const { emitToUser } = require('../sockets/state');
+const { populateReplies } = require('../services/messageService');
 
 exports.history = asyncHandler(async (req, res) => {
   const me = req.user._id;
@@ -16,7 +17,21 @@ exports.history = asyncHandler(async (req, res) => {
 
   const rows = await Message.find(filter).sort({ createdAt: -1 }).limit(limit + 1).lean();
   const hasMore = rows.length > limit;
-  res.json({ messages: rows.slice(0, limit).reverse(), hasMore });
+  const messages = rows.slice(0, limit).reverse();
+  await populateReplies(messages, me);
+  res.json({ messages, hasMore });
+});
+
+exports.getOne = asyncHandler(async (req, res) => {
+  const me = req.user._id;
+  const message = await Message.findOne({ _id: req.params.id, deletedFor: { $ne: me } })
+    .populate('sender', 'name avatar')
+    .lean();
+  if (!message || ![String(message.sender?._id || message.sender), String(message.receiver)].includes(String(me))) {
+    throw new ApiError(404, 'Message not found');
+  }
+  await populateReplies(message, me);
+  res.json({ message });
 });
 
 exports.search = asyncHandler(async (req, res) => {

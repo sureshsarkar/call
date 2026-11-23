@@ -7,7 +7,7 @@ const { cleanText, extractUrls } = require('../utils/text');
 const { getLinkPreview } = require('./linkPreview');
 
 /** Persists a message, updates the conversation and the receiver's notification. */
-async function createMessage({ senderId, receiverId, text, receiverOnline }) {
+async function createMessage({ senderId, receiverId, text, receiverOnline, replyToMessageId }) {
   const body = cleanText(text);
   if (!body) throw new ApiError(400, 'Message cannot be empty');
   if (String(senderId) === String(receiverId)) throw new ApiError(400, 'You cannot message yourself');
@@ -16,11 +16,19 @@ async function createMessage({ senderId, receiverId, text, receiverOnline }) {
   if (!receiver) throw new ApiError(404, 'Recipient not found');
 
   const conversation = await Conversation.findOrCreate(senderId, receiverId);
+  let replyTo = null;
+  if (replyToMessageId) {
+    if (!require('mongoose').isValidObjectId(replyToMessageId)) throw new ApiError(400, 'Invalid message being replied to');
+    const original = await Message.findOne({ _id: replyToMessageId, conversation: conversation._id, deletedForEveryone: false, deletedFor: { $ne: senderId } }).select('_id');
+    if (!original) throw new ApiError(404, 'Original message is unavailable');
+    replyTo = original._id;
+  }
   const message = await Message.create({
     conversation: conversation._id,
     sender: senderId,
     receiver: receiverId,
     text: body,
+    reply_to_message_id: replyTo,
     links: extractUrls(body).map((url) => ({ url })),
     status: receiverOnline ? 'delivered' : 'sent',
     deliveredAt: receiverOnline ? new Date() : undefined,
@@ -43,4 +51,34 @@ async function enrichLinks(message) {
   return Message.findByIdAndUpdate(message._id, { links }, { returnDocument: 'after' });
 }
 
-module.exports = { createMessage, enrichLinks };
+async function populateReplies(messages, viewerId) {
+  const list = Array.isArray(messages) ? messages : [messages];
+  await Message.populate(list, {
+    path: 'reply_to_message_id',
+    select: 'sender text links deletedFor deletedForEveryone type media fileName attachment createdAt',
+    populate: { path: 'sender', select: 'name' },
+  });
+  for (const message of list) {
+    const original = message.reply_to_message_id;
+    if (!original) continue;
+    if (original.deletedFor?.some((id) => String(id) === String(viewerId))) {
+      message.replyTo = { unavailable: true };
+    } else {
+      message.replyTo = {
+        _id: original._id,
+        sender: original.sender,
+        text: original.text,
+        links: original.links,
+        deletedForEveryone: original.deletedForEveryone,
+        type: original.type,
+        media: original.media,
+        fileName: original.fileName,
+        attachment: original.attachment,
+        createdAt: original.createdAt,
+      };
+    }
+  }
+  return messages;
+}
+
+module.exports = { createMessage, enrichLinks, populateReplies };

@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const Notification = require('../models/Notification');
-const { createMessage, enrichLinks } = require('../services/messageService');
+const { createMessage, enrichLinks, populateReplies } = require('../services/messageService');
 const { emitToUser, isOnline } = require('./state');
 
 const isId = (v) => mongoose.isValidObjectId(v);
@@ -26,23 +26,29 @@ module.exports = function registerChat(io, socket) {
         senderId: me,
         receiverId: data.to,
         text: data.text,
+        replyToMessageId: data.replyToMessageId,
         receiverOnline: online,
       });
-      const payload = message.toObject();
+      const senderPayload = message.toObject();
+      const receiverPayload = message.toObject();
+      await Promise.all([populateReplies(senderPayload, me), populateReplies(receiverPayload, data.to)]);
 
-      emitToUser(io, data.to, 'receive_message', payload);
-      emitToUser(io, me, 'message_sent', { ...payload, tempId: data.tempId }); // all of my tabs
+      emitToUser(io, data.to, 'receive_message', receiverPayload);
+      emitToUser(io, me, 'message_sent', { ...senderPayload, tempId: data.tempId }); // all of my tabs
       emitToUser(io, data.to, 'notification', notification);
-      reply({ ok: true, message: payload });
+      reply({ ok: true, message: senderPayload });
 
       // link previews are fetched after delivery so sending is never blocked
-      if (payload.links?.length) {
+      if (senderPayload.links?.length) {
         enrichLinks(message)
           .then((updated) => {
             if (!updated) return;
-            const out = updated.toObject();
-            emitToUser(io, me, 'message_updated', out);
-            emitToUser(io, data.to, 'message_updated', out);
+            const senderUpdate = updated.toObject();
+            const receiverUpdate = updated.toObject();
+            return Promise.all([populateReplies(senderUpdate, me), populateReplies(receiverUpdate, data.to)]).then(() => {
+              emitToUser(io, me, 'message_updated', senderUpdate);
+              emitToUser(io, data.to, 'message_updated', receiverUpdate);
+            });
           })
           .catch(() => {});
       }

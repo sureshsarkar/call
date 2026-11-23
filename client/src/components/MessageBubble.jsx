@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Check, CheckCheck, ChevronDown, Clock, AlertCircle, Ban, ExternalLink } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, Clock, AlertCircle, Ban, ExternalLink, Reply } from 'lucide-react';
 import { formatTime, isEmojiOnly } from '../utils/format';
 import { tokenize } from '../utils/linkify';
 import { vibrate } from '../utils/haptics';
@@ -33,10 +33,12 @@ function Ticks({ status }) {
  * Chat bubble. On touch screens, long-press opens the action sheet (copy / delete) via `onLongPress`;
  * on desktop a hover chevron opens a small dropdown.
  */
-function MessageBubble({ message, mine, onDelete, onRetry, onLongPress }) {
+function MessageBubble({ message, mine, onDelete, onRetry, onLongPress, onReply, onQuoteNavigate, highlighted }) {
   const [menu, setMenu] = useState(false);
   const ref = useRef(null);
   const press = useRef({ timer: null, x: 0, y: 0 });
+  const swipe = useRef({ x: 0, y: 0, dx: 0, active: false, tracking: false });
+  const [swipeX, setSwipeX] = useState(0);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -51,24 +53,63 @@ function MessageBubble({ message, mine, onDelete, onRetry, onLongPress }) {
 
   const cancelPress = () => { clearTimeout(press.current.timer); press.current.timer = null; };
   const onPointerDown = (e) => {
-    if (e.pointerType === 'mouse' || !actionable) return;
-    press.current.x = e.clientX; press.current.y = e.clientY;
-    press.current.timer = setTimeout(() => { press.current.timer = null; vibrate(15); onLongPress?.(message, mine); }, 420);
+    if (!actionable) return;
+    swipe.current = { x: e.clientX, y: e.clientY, dx: 0, active: false, tracking: true };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    if (e.pointerType !== 'mouse') {
+      press.current.x = e.clientX; press.current.y = e.clientY;
+      press.current.timer = setTimeout(() => { press.current.timer = null; vibrate(15); onLongPress?.(message, mine); }, 420);
+    }
   };
   const onPointerMove = (e) => {
-    if (press.current.timer && (Math.abs(e.clientX - press.current.x) > 10 || Math.abs(e.clientY - press.current.y) > 10)) cancelPress();
+    if (!swipe.current.tracking) return;
+    const dx = e.clientX - swipe.current.x;
+    const dy = e.clientY - swipe.current.y;
+    if (!swipe.current.active && dx > 8 && dx > Math.abs(dy) * 1.2) swipe.current.active = true;
+    if (swipe.current.active) {
+      cancelPress();
+      swipe.current.dx = dx;
+      setSwipeX(Math.max(0, Math.min(92, dx)));
+      if (e.cancelable) e.preventDefault();
+    } else if (press.current.timer && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) cancelPress();
+  };
+  const onPointerFinish = () => {
+    cancelPress();
+    if (swipe.current.tracking && swipe.current.active && swipe.current.dx >= 58) { vibrate(10); onReply?.(message); }
+    swipe.current.tracking = false;
+    swipe.current.active = false;
+    setSwipeX(0);
+  };
+  const quoted = message.replyTo;
+  const quoteLabel = (item) => {
+    if (!item || item.unavailable) return 'Original message unavailable';
+    if (item.deletedForEveryone) return 'This message was deleted';
+    if (item.text) return item.text;
+    const type = String(item.type || '').toLowerCase();
+    if (type.includes('image') || item.image) return '📷 Image';
+    if (type.includes('video') || item.video) return '🎥 Video';
+    if (type.includes('document') || item.fileName) return `📄 ${item.fileName || 'Document'}`;
+    if (item.attachment) return '📎 Attachment';
+    if (item.links?.length) return item.links[0].title || item.links[0].url;
+    return 'Message';
   };
 
   return (
-    <div className={`group flex ${mine ? 'justify-end' : 'justify-start'} px-3 md:px-[8%]`}>
+    <div className={`group relative flex ${mine ? 'justify-end' : 'justify-start'} overflow-hidden px-3 md:px-[8%]`} data-message-id={message._id}>
+      <div className={`absolute inset-y-0 flex items-center text-brand ${mine ? 'left-5' : 'right-5'}`} style={{ opacity: Math.min(1, Math.abs(swipeX) / 54) }}><Reply size={20} /></div>
       <div ref={ref}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={cancelPress} onPointerCancel={cancelPress} onPointerLeave={cancelPress}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerFinish} onPointerCancel={onPointerFinish}
         onContextMenu={(e) => { if (actionable && window.matchMedia('(pointer: coarse)').matches) e.preventDefault(); }}
-        className={`relative max-w-[85%] select-none rounded-2xl px-3 py-1.5 shadow-sm [-webkit-touch-callout:none] md:max-w-[65%] md:select-text md:rounded-lg md:px-2.5 ${mine ? 'rounded-tr-md bg-bubble-out md:rounded-tr-none' : 'rounded-tl-md bg-bubble-in md:rounded-tl-none'} ${emojiOnly ? '!bg-transparent !shadow-none' : ''}`}>
+        style={{ transform: `translateX(${swipeX}px)`, transition: swipe.current.active ? 'none' : 'transform 180ms ease-out', touchAction: 'pan-y' }}
+        className={`relative max-w-[85%] select-none rounded-2xl px-3 py-1.5 shadow-sm [-webkit-touch-callout:none] md:max-w-[65%] md:select-text md:rounded-lg md:px-2.5 ${mine ? 'rounded-tr-md bg-bubble-out md:rounded-tr-none' : 'rounded-tl-md bg-bubble-in md:rounded-tl-none'} ${emojiOnly ? '!bg-transparent !shadow-none' : ''} ${highlighted ? 'ring-2 ring-brand/80' : ''}`}>
         {deleted ? (
           <p className="flex items-center gap-1.5 pr-14 text-sm italic text-mute"><Ban size={14} />This message was deleted</p>
         ) : (
           <>
+            {quoted && <button onClick={() => !quoted.unavailable && onQuoteNavigate?.(quoted._id)} className="mb-1 block w-full border-l-[3px] border-brand/80 rounded-sm bg-black/10 px-2 py-1 text-left" aria-label="Go to replied message">
+              <span className="block truncate text-xs font-semibold text-brand">{quoted.unavailable ? 'Unavailable' : quoted.sender?.name || 'Message'}</span>
+              <span className="block truncate text-xs text-mute">{quoteLabel(quoted)}</span>
+            </button>}
             {message.links?.map((l) => <LinkCard key={l.url} link={l} />)}
             <p className={`whitespace-pre-wrap break-words text-[15px] leading-snug ${emojiOnly ? 'emoji-only' : 'pr-14'}`}>
               {tokenize(message.text).map((t, i) =>

@@ -30,9 +30,12 @@ export default function ChatWindow() {
   const prevHeight = useRef(0);
   const [showDown, setShowDown] = useState(false);
   const [sheet, setSheet] = useState(null); // { message, mine }
+  const [reply, setReply] = useState(null);
+  const [highlightedId, setHighlightedId] = useState(null);
   const messages = thread?.messages;
 
   useEffect(() => {
+    setReply(null);
     setActive(userId);
     fetchUser(userId);
     if (!useChatStore.getState().threads[userId]?.loaded) loadHistory(userId);
@@ -71,10 +74,28 @@ export default function ChatWindow() {
   };
 
   const scrollDown = () => scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
-  const onSend = useCallback((text) => { stick.current = true; sendMessage(userId, text); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onSend = useCallback((text, quoted) => { stick.current = true; sendMessage(userId, text, quoted); setReply(null); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
   const onLongPress = useCallback((message, mine) => setSheet({ message, mine }), []);
   const onDelete = useCallback((m, scope) => deleteMessage(userId, m, scope), [userId]); // eslint-disable-line react-hooks/exhaustive-deps
   const onRetry = useCallback((m) => retryMessage(userId, m._id), [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const goToMessage = useCallback(async (messageId) => {
+    let target = thread?.messages.find((m) => String(m._id) === String(messageId));
+    if (!target) {
+      try {
+        target = await useChatStore.getState().fetchMessage(messageId);
+        const partner = idOf(target.sender) === String(me._id) ? idOf(target.receiver) : idOf(target.sender);
+        if (partner !== String(userId)) throw new Error('This message is from another conversation');
+        useChatStore.getState().insertMessage(userId, target);
+      } catch { toast.error('Original message is unavailable'); return; }
+    }
+    requestAnimationFrame(() => {
+      const el = scroller.current?.querySelector(`[data-message-id="${CSS.escape(String(messageId))}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedId(String(messageId));
+      setTimeout(() => setHighlightedId((current) => current === String(messageId) ? null : current), 1800);
+    });
+  }, [thread?.messages, me?._id, userId]);
 
   const copyText = async () => {
     try { await navigator.clipboard.writeText(sheet.message.text); toast.success('Copied'); } catch { toast.error('Could not copy'); }
@@ -121,7 +142,7 @@ export default function ChatWindow() {
               it.day ? (
                 <div key={it.key} className="my-2 flex justify-center"><span className="rounded-full bg-panel2 px-3 py-1 text-xs text-mute shadow">{it.day}</span></div>
               ) : (
-                <MessageBubble key={it.key} message={it.message} mine={idOf(it.message.sender) === String(me._id)} onDelete={onDelete} onRetry={onRetry} onLongPress={onLongPress} />
+                <MessageBubble key={it.key} message={it.message} mine={idOf(it.message.sender) === String(me._id)} onDelete={onDelete} onRetry={onRetry} onLongPress={onLongPress} onReply={setReply} onQuoteNavigate={goToMessage} highlighted={highlightedId === String(it.message._id)} />
               )
             )}
             {typing && (
@@ -136,7 +157,7 @@ export default function ChatWindow() {
         )}
       </div>
 
-      <MessageInput userId={userId} onSend={onSend} />
+      <MessageInput userId={userId} onSend={onSend} reply={reply} onCancelReply={() => setReply(null)} />
 
       {/* long-press action sheet (touch) */}
       <BottomSheet open={Boolean(sheet)} onClose={() => setSheet(null)} title={sheet ? `${sheet.message.text.slice(0, 60)}${sheet.message.text.length > 60 ? '…' : ''}` : ''}>

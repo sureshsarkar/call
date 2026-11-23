@@ -1,12 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Send, Smile, Keyboard } from 'lucide-react';
+import { Send, Smile, Keyboard, X } from 'lucide-react';
 import { getSocket } from '../socket/socket';
 import { vibrate } from '../utils/haptics';
 
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const isPhone = () => window.matchMedia('(max-width: 767px)').matches;
 
-export default function MessageInput({ userId, onSend }) {
+export default function MessageInput({ userId, onSend, reply, onCancelReply }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const ref = useRef(null);
@@ -41,7 +41,7 @@ export default function MessageInput({ userId, onSend }) {
     const v = text.trim();
     if (!v) return;
     vibrate(8);
-    onSend(v);
+    onSend(v, reply);
     setText('');
     stopTyping();
     // phones: keep the keyboard open for rapid-fire chatting; desktop: close the emoji panel
@@ -66,6 +66,13 @@ export default function MessageInput({ userId, onSend }) {
 
   return (
     <div className="relative bg-panel2">
+      {reply && <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border-l-[3px] border-brand bg-panel3 px-3 py-2 md:mx-4">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-semibold text-brand">Replying to {reply.sender?.name || 'message'}</p>
+          <p className="truncate text-sm text-mute">{reply.deletedForEveryone ? 'This message was deleted' : reply.text || (reply.type ? reply.type[0].toUpperCase() + reply.type.slice(1) : reply.fileName || (reply.image ? 'Image' : reply.video ? 'Video' : reply.attachment ? 'Attachment' : 'Message'))}</p>
+        </div>
+        <button onClick={onCancelReply} aria-label="Cancel reply" className="btn-icon h-8 w-8 shrink-0 text-mute"><X size={18} /></button>
+      </div>}
       {/* desktop: floating popover */}
       {showEmoji && (
         <div className="pop-in absolute bottom-full left-4 z-30 mb-1 hidden md:block">

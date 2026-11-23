@@ -125,15 +125,15 @@ export const useChatStore = create((set, get) => ({
       return { threads: { ...s.threads, [userId]: { ...t, messages: t.messages.map((m) => (matcher(m) ? { ...m, ...patch(m) } : m)) } } };
     }),
 
-  sendMessage: async (userId, text) => {
+  sendMessage: async (userId, text, replyTo = null) => {
     const clean = text.trim();
     if (!clean) return;
     const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const temp = { _id: tempId, tempId, sender: myId(), receiver: userId, text: clean, links: [], status: 'sending', createdAt: new Date().toISOString() };
+    const temp = { _id: tempId, tempId, sender: myId(), receiver: userId, text: clean, links: [], replyTo, status: 'sending', createdAt: new Date().toISOString() };
     get().appendMessage(userId, temp);
     get().upsertConversation(userId, () => ({ lastMessage: temp, updatedAt: temp.createdAt }));
 
-    const res = await emitAck('send_message', { to: userId, text: clean, tempId });
+    const res = await emitAck('send_message', { to: userId, text: clean, tempId, replyToMessageId: replyTo?._id });
     if (res.ok) {
       get().replaceTemp(userId, tempId, res.message);
     } else {
@@ -146,8 +146,18 @@ export const useChatStore = create((set, get) => ({
     const m = get().threads[userId]?.messages.find((x) => x._id === tempId);
     if (!m) return;
     set((s) => ({ threads: { ...s.threads, [userId]: { ...s.threads[userId], messages: s.threads[userId].messages.filter((x) => x._id !== tempId) } } }));
-    await get().sendMessage(userId, m.text);
+    await get().sendMessage(userId, m.text, m.replyTo);
   },
+
+  fetchMessage: async (id) => chatApi.getMessage(id),
+
+  insertMessage: (userId, message) =>
+    set((s) => {
+      const t = s.threads[userId] || emptyThread;
+      if (t.messages.some((m) => m._id === message._id)) return s;
+      const messages = [...t.messages, message].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      return { threads: { ...s.threads, [userId]: { ...t, messages } } };
+    }),
 
   replaceTemp: (userId, tempId, real) =>
     set((s) => {
@@ -210,8 +220,12 @@ export const useChatStore = create((set, get) => ({
           ...t,
           messages:
             scope === 'me'
-              ? t.messages.filter((m) => m._id !== messageId)
-              : t.messages.map((m) => (m._id === messageId ? { ...m, deletedForEveryone: true, text: '', links: [] } : m)),
+              ? t.messages.filter((m) => m._id !== messageId).map((m) => (String(m.replyTo?._id) === String(messageId) ? { ...m, replyTo: { unavailable: true } } : m))
+              : t.messages.map((m) => m._id === messageId
+                ? { ...m, deletedForEveryone: true, text: '', links: [] }
+                : String(m.replyTo?._id) === String(messageId)
+                  ? { ...m, replyTo: { ...m.replyTo, deletedForEveryone: true, text: '', links: [] } }
+                  : m),
         };
       }
       const conversations = s.conversations.map((c) =>
