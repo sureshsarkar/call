@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Invalid email address'],
     },
-    password: { type: String, required: true, minlength: 8, select: false },
+    password: { type: String, required: true, minlength: 1, select: false },
     avatar: { type: String, default: '' },
     about: { type: String, maxlength: 140, default: 'Hey there! I am using Pulse.' },
     isOnline: { type: Boolean, default: false },

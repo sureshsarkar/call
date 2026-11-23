@@ -5,10 +5,7 @@ const objectId = (name, where = param) => where(name).isMongoId().withMessage('I
 exports.register = [
   body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be 2-50 characters'),
   body('email').trim().isEmail().withMessage('Enter a valid email').normalizeEmail({ gmail_remove_dots: false }),
-  body('password')
-    .isLength({ min: 8, max: 128 }).withMessage('Password must be at least 8 characters')
-    .matches(/[A-Za-z]/).withMessage('Password must contain a letter')
-    .matches(/\d/).withMessage('Password must contain a number'),
+  body('password').isString().isLength({ min: 1, max: 128 }).withMessage('Password is required'),
 ];
 exports.login = [
   body('email').trim().isEmail().withMessage('Enter a valid email').normalizeEmail({ gmail_remove_dots: false }),

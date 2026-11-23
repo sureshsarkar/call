@@ -27,7 +27,7 @@ export default function Register() {
       <form onSubmit={submit} className="space-y-4">
         <input className="input" placeholder="Full name" autoComplete="name" required minLength={2} maxLength={50} value={form.name} onChange={set('name')} />
         <input className="input" type="email" placeholder="Email" autoComplete="email" required value={form.email} onChange={set('email')} />
-        <input className="input" type="password" placeholder="Password (8+ chars, letters & numbers)" autoComplete="new-password" required minLength={8} value={form.password} onChange={set('password')} />
+        <input className="input" type="password" placeholder="Password" autoComplete="new-password" required value={form.password} onChange={set('password')} />
         <input className="input" type="password" placeholder="Confirm password" autoComplete="new-password" required value={form.confirm} onChange={set('confirm')} />
         <button className="btn-primary w-full" disabled={busy}>{busy ? 'Creating…' : 'Sign up'}</button>
       </form>
