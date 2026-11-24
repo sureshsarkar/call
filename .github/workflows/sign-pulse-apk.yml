@@ -1,0 +1,91 @@
+name: Sign Pulse Android APK
+
+on:
+  push:
+    paths:
+      - .github/workflows/sign-pulse-apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android APK signing tools
+        run: sdkmanager 'build-tools;35.0.0'
+
+      - name: Sign APK and prepare Digital Asset Links
+        shell: bash
+        run: |
+          set -euo pipefail
+          input='android/pwabuilder-input/Pulse-unsigned.apk'
+          test -s "$input"
+          output="$RUNNER_TEMP/pulse-output"
+          keystore="$RUNNER_TEMP/pulse-signing.p12"
+          mkdir -p "$output"
+
+          storepass="$(openssl rand -hex 32)"
+          echo "::add-mask::$storepass"
+          keytool -genkeypair -noprompt \
+            -alias pulse-release \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storetype PKCS12 -keystore "$keystore" \
+            -storepass "$storepass" -keypass "$storepass" \
+            -dname 'CN=Pulse, OU=Android, O=Pulse, L=NA, ST=NA, C=IN'
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$keystore" --ks-key-alias pulse-release \
+            --ks-pass "pass:$storepass" --key-pass "pass:$storepass" \
+            --out "$output/Pulse.apk" "$input"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$output/Pulse.apk"
+
+          fingerprint="$(keytool -list -v -keystore "$keystore" -storepass "$storepass" -alias pulse-release \
+            | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d '\r')"
+          test -n "$fingerprint"
+          cat > "$output/assetlinks.json" <<EOF
+          [
+            {
+              "relation": ["delegate_permission/common.handle_all_urls"],
+              "target": {
+                "namespace": "android_app",
+                "package_name": "app.vercel.pulse_delta_blue.twa",
+                "sha256_cert_fingerprints": ["$fingerprint"]
+              }
+            }
+          ]
+          EOF
+
+          mkdir -p client/public/.well-known
+          cp "$output/assetlinks.json" client/public/.well-known/assetlinks.json
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-Android-APK
+          path: ${{ runner.temp }}/pulse-output/Pulse.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish website verification and remove unsigned input
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm android/pwabuilder-input/Pulse-unsigned.apk
+          git add client/public/.well-known/assetlinks.json
+          git commit -m 'Configure Pulse Android app verification'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
