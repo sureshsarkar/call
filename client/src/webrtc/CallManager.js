@@ -47,6 +47,7 @@ class CallManager {
     this.remoteStream = null;
     this.reconnectTimer = null;
     this.ending = false;
+    this.switchingCamera = false;
   }
 
   get busy() { return get().status !== 'idle'; }
@@ -281,15 +282,49 @@ class CallManager {
     getSocket()?.emit('call_media_state', { callId, audio: !muted, video: !cameraOff });
   }
 
+  /**
+   * Front <-> back camera switch without touching the call: the video sender's track is replaced in place
+   * (RTCRtpSender.replaceTrack), so there is no renegotiation and the audio track is never touched.
+   */
   async switchCamera() {
-    if (!this.cameraTrack || get().type !== 'video') return;
-    const facing = get().facing === 'user' ? 'environment' : 'user';
+    if (this.switchingCamera || !this.cameraTrack || get().type !== 'video') return;
+    this.switchingCamera = true;
+    set({ cameraSwitching: true });
+    const current = get().facing;
+    const target = current === 'user' ? 'environment' : 'user';
+    const old = this.cameraTrack;
+    let released = false;
+    const open = async (facing, exact) => {
+      const base = videoConstraints({ facingMode: facing });
+      const video = exact ? { ...base, facingMode: { exact: facing } } : base;
+      return (await navigator.mediaDevices.getUserMedia({ video })).getVideoTracks()[0];
+    };
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: videoConstraints({ facingMode: facing }) });
-      await this.swapCameraTrack(s.getVideoTracks()[0]);
-      set({ facing });
+      let track;
+      try {
+        track = await open(target, true); // exact: a missing camera fails instead of silently returning the same one
+      } catch (err) {
+        if (!['NotReadableError', 'AbortError', 'TrackStartError'].includes(err.name)) throw err;
+        // many phones cannot open two cameras at once -> release the current one, then retry
+        old.stop();
+        released = true;
+        track = await open(target, true);
+      }
+      await this.swapCameraTrack(track);
+      set({ facing: target });
     } catch (err) {
-      toast.error(mediaErrorMessage(err, 'camera'));
+      if (released) {
+        // we had to release the working camera: bring it back so the call keeps showing video
+        try { await this.swapCameraTrack(await open(current, false)); } catch { toast.error('Camera could not be restored'); }
+      }
+      if (['OverconstrainedError', 'NotFoundError', 'DevicesNotFoundError'].includes(err.name)) {
+        toast(target === 'environment' ? 'No back camera on this device' : 'No front camera on this device', { icon: '📷', id: 'no-cam' });
+      } else {
+        toast.error(mediaErrorMessage(err, 'camera'));
+      }
+    } finally {
+      this.switchingCamera = false;
+      set({ cameraSwitching: false });
     }
   }
 

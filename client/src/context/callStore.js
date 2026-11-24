@@ -12,6 +12,7 @@ const initial = {
   cameraOff: false,
   noCamera: false,
   sharing: false,
+  cameraSwitching: false,
   remoteSharing: false,
   remoteMuted: false,
   remoteCameraOff: false,

@@ -115,38 +115,6 @@ function IncomingCall() {
   );
 }
 
-/** Self-view that can be dragged anywhere and snaps to the nearest screen corner (phones). */
-function Pip({ children }) {
-  const [corner, setCorner] = useState('tr');
-  const [drag, setDrag] = useState(null);
-  const ref = useRef(null);
-  const start = useRef(null);
-  const onDown = (e) => {
-    const r = ref.current.getBoundingClientRect();
-    start.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height };
-    ref.current.setPointerCapture(e.pointerId);
-    setDrag({ x: r.left, y: r.top });
-  };
-  const onMove = (e) => { if (start.current) setDrag({ x: e.clientX - start.current.dx, y: e.clientY - start.current.dy }); };
-  const onUp = (e) => {
-    const s = start.current;
-    if (!s) return;
-    start.current = null;
-    const cx = e.clientX - s.dx + s.w / 2;
-    const cy = e.clientY - s.dy + s.h / 2;
-    setCorner((cy < window.innerHeight / 2 ? 't' : 'b') + (cx < window.innerWidth / 2 ? 'l' : 'r'));
-    setDrag(null);
-  };
-  const pos = `${corner[0] === 't' ? 'top-[calc(env(safe-area-inset-top)+4.5rem)]' : 'bottom-40'} ${corner[1] === 'l' ? 'left-3' : 'right-3'}`;
-  return (
-    <div ref={ref} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-      style={drag ? { left: drag.x, top: drag.y, right: 'auto', bottom: 'auto' } : undefined}
-      className={`absolute z-20 h-36 w-24 touch-none overflow-hidden rounded-2xl border border-white/25 bg-black shadow-2xl sm:h-44 sm:w-32 md:h-52 md:w-40 ${drag ? '' : pos}`}>
-      {children}
-    </div>
-  );
-}
-
 function ActiveCall() {
   const s = useCallStore();
   const [panel, setPanel] = useState(false);
@@ -169,6 +137,83 @@ function ActiveCall() {
   const canFlip = isVideo && !s.noCamera && (s.devices.cams.length > 1 || /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent));
   const hasRemoteVideo = isVideo && (s.remoteStream?.getVideoTracks().length || 0) > 0 && !s.remoteCameraOff;
 
+  // ---- WhatsApp-style layout: tap self-view to swap main/floating video, double-tap to flip the camera
+  const localAvailable = isVideo && Boolean(s.localStream);
+  const [swappedState, setSwapped] = useState(false);
+  const swapped = swappedState && localAvailable; // my camera is the full-screen video
+  const [corner, setCorner] = useState('tr'); // floating window corner: t/b + l/r
+  const [drag, setDrag] = useState(null); // {x, y} while the floating window is being dragged
+  const pipGesture = useRef(null);
+  const tapRef = useRef({ time: 0, timer: null });
+  const bgTapRef = useRef(0);
+  const DOUBLE_MS = 280;
+
+  const flipCamera = () => {
+    if (!isVideo || s.noCamera) return;
+    vibrate(10);
+    callManager.switchCamera();
+  };
+
+  // single tap on the floating window = swap (delayed a moment so a double tap never also swaps); double tap = flip camera
+  const registerPipTap = () => {
+    const t = tapRef.current;
+    const now = Date.now();
+    if (t.timer && now - t.time < DOUBLE_MS) {
+      clearTimeout(t.timer);
+      t.timer = null;
+      flipCamera();
+      return;
+    }
+    t.time = now;
+    t.timer = setTimeout(() => { t.timer = null; vibrate(6); setSwapped((v) => !v); }, DOUBLE_MS);
+  };
+  useEffect(() => () => clearTimeout(tapRef.current.timer), []);
+
+  const onPipDown = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    pipGesture.current = { sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPipMove = (e) => {
+    const g = pipGesture.current;
+    if (!g) return;
+    if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 8) g.moved = true; // below 8px it is a tap, not a drag
+    if (g.moved) setDrag({ x: e.clientX - g.dx, y: e.clientY - g.dy });
+  };
+  const onPipUp = (e) => {
+    const g = pipGesture.current;
+    pipGesture.current = null;
+    if (!g) return;
+    if (!g.moved) { registerPipTap(); return; }
+    const cx = e.clientX - g.dx + g.w / 2;
+    const cy = e.clientY - g.dy + g.h / 2;
+    setCorner((cy < window.innerHeight / 2 ? 't' : 'b') + (cx < window.innerWidth / 2 ? 'l' : 'r'));
+    setDrag(null);
+  };
+  const onBackgroundUp = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const now = Date.now();
+    if (now - bgTapRef.current < DOUBLE_MS) { bgTapRef.current = 0; flipCamera(); } else bgTapRef.current = now;
+  };
+
+  // geometry of the two video "slots"; both are animated with CSS transitions when they trade places
+  const vw = window.innerWidth;
+  const pipW = vw >= 768 ? 160 : vw >= 640 ? 128 : 96;
+  const pipH = vw >= 768 ? 208 : vw >= 640 ? 176 : 144;
+  const MAIN_STYLE = { left: 0, top: 0, width: '100%', height: '100%', borderRadius: 0 };
+  const pipStyle = drag
+    ? { left: drag.x, top: drag.y, width: pipW, height: pipH, borderRadius: 16 }
+    : {
+        width: pipW, height: pipH, borderRadius: 16,
+        left: corner[1] === 'l' ? 12 : `calc(100% - ${pipW + 12}px)`,
+        top: corner[0] === 't' ? 'calc(env(safe-area-inset-top) + 4.5rem)' : `calc(100% - ${pipH + 160}px)`,
+      };
+  const slotClass = (role) =>
+    `absolute overflow-hidden bg-black ${role === 'pip' ? 'z-20 cursor-pointer touch-none select-none border border-white/25 shadow-2xl' : 'z-0'} ${role === 'pip' && drag ? '' : 'transition-[left,top,width,height,border-radius] duration-300 ease-out'}`;
+  const remoteRole = swapped ? 'pip' : 'main';
+  const localRole = swapped ? 'main' : 'pip';
+  const pipHandlers = (role) => (role === 'pip' ? { onPointerDown: onPipDown, onPointerMove: onPipMove, onPointerUp: onPipUp, onPointerCancel: onPipUp } : {});
+
   const statusText = {
     outgoing: 'Calling…',
     connecting: 'Connecting…',
@@ -188,22 +233,52 @@ function ActiveCall() {
 
   return (
     <div ref={rootRef} className="fixed inset-0 z-50 flex flex-col bg-[#0a0f12] text-white">
-      {/* remote media is always mounted so audio keeps playing even if the camera is off */}
       {isVideo ? (
-        <Media stream={s.remoteStream} className={`absolute inset-0 h-full w-full ${hasRemoteVideo ? '' : 'opacity-0'}`} contain={s.remoteSharing} />
-      ) : (
-        <Media stream={s.remoteStream} audioOnly />
-      )}
-
-      {!hasRemoteVideo && (
-        <div className="absolute inset-0 grid place-items-center bg-gradient-to-b from-[#16242b] to-[#0a0f12]">
-          <div className="flex flex-col items-center gap-4">
-            <div className={`rounded-full ${s.status === 'outgoing' ? 'ring-pulse' : ''}`}><Avatar user={s.peer} size={isVideo ? 120 : 150} /></div>
-            <h2 className="text-2xl font-semibold">{s.peer?.name}</h2>
-            <p className="text-white/70">{statusText}</p>
-            {s.remoteMuted && s.status === 'connected' && <p className="flex items-center gap-1 text-sm text-white/60"><MicOff size={14} /> Muted</p>}
+        <>
+          {/* both video slots are always mounted: remote audio keeps playing even if a camera is off */}
+          <div className={slotClass(remoteRole)} style={remoteRole === 'main' ? MAIN_STYLE : pipStyle} {...pipHandlers(remoteRole)}>
+            <Media stream={s.remoteStream} className={`pointer-events-none h-full w-full ${hasRemoteVideo ? '' : 'opacity-0'}`} contain={s.remoteSharing && remoteRole === 'main'} />
+            {!hasRemoteVideo && (remoteRole === 'main' ? (
+              <div className="pointer-events-none absolute inset-0 grid place-items-center bg-gradient-to-b from-[#16242b] to-[#0a0f12]">
+                <div className="flex flex-col items-center gap-4">
+                  <div className={`rounded-full ${s.status === 'outgoing' ? 'ring-pulse' : ''}`}><Avatar user={s.peer} size={120} /></div>
+                  <h2 className="text-2xl font-semibold">{s.peer?.name}</h2>
+                  <p className="text-white/70">{statusText}</p>
+                  {s.remoteMuted && s.status === 'connected' && <p className="flex items-center gap-1 text-sm text-white/60"><MicOff size={14} /> Muted</p>}
+                </div>
+              </div>
+            ) : (
+              <div className="pointer-events-none absolute inset-0 grid place-items-center bg-panel2"><Avatar user={s.peer} size={52} /></div>
+            ))}
           </div>
-        </div>
+
+          {localAvailable && (
+            <div className={slotClass(localRole)} style={localRole === 'main' ? MAIN_STYLE : pipStyle} {...pipHandlers(localRole)}>
+              <Media stream={s.localStream} muted mirror={!s.sharing && s.facing === 'user'} contain={s.sharing && localRole === 'main'} className={`pointer-events-none h-full w-full ${s.cameraOff && !s.sharing ? 'opacity-0' : ''}`} />
+              {s.cameraOff && !s.sharing && (
+                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-panel2 text-white/70">
+                  <span className="flex flex-col items-center gap-2"><VideoOff size={localRole === 'main' ? 34 : 22} />{localRole === 'main' && <span className="text-sm">Your camera is off</span>}</span>
+                </div>
+              )}
+              {s.cameraSwitching && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/40"><span className="h-7 w-7 animate-spin rounded-full border-2 border-white/30 border-t-white" /></div>}
+            </div>
+          )}
+
+          {/* transparent layer under the controls: double-tap / double-click anywhere = flip camera */}
+          <div className="absolute inset-0 z-[1] select-none" onPointerUp={onBackgroundUp} />
+        </>
+      ) : (
+        <>
+          <Media stream={s.remoteStream} audioOnly />
+          <div className="absolute inset-0 grid place-items-center bg-gradient-to-b from-[#16242b] to-[#0a0f12]">
+            <div className="flex flex-col items-center gap-4">
+              <div className={`rounded-full ${s.status === 'outgoing' ? 'ring-pulse' : ''}`}><Avatar user={s.peer} size={150} /></div>
+              <h2 className="text-2xl font-semibold">{s.peer?.name}</h2>
+              <p className="text-white/70">{statusText}</p>
+              {s.remoteMuted && s.status === 'connected' && <p className="flex items-center gap-1 text-sm text-white/60"><MicOff size={14} /> Muted</p>}
+            </div>
+          </div>
+        </>
       )}
 
       <div className="relative z-10 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent p-3 sm:p-4" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
@@ -230,17 +305,10 @@ function ActiveCall() {
 
       <div className="flex-1" />
 
-      {isVideo && s.localStream && (
-        <Pip>
-          <Media stream={s.localStream} muted mirror={!s.sharing && s.facing === 'user'} contain={s.sharing} className={`pointer-events-none h-full w-full ${s.cameraOff && !s.sharing ? 'opacity-0' : ''}`} />
-          {s.cameraOff && !s.sharing && <div className="absolute inset-0 grid place-items-center bg-panel2 text-white/70"><VideoOff size={22} /></div>}
-        </Pip>
-      )}
-
       <div className="relative z-30 mx-3 flex flex-wrap items-center justify-center gap-2.5 rounded-[2rem] bg-black/45 px-3 py-4 backdrop-blur-md sm:gap-5 md:mx-auto md:mb-6 md:max-w-xl" style={{ marginBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <CtrlBtn onClick={() => { vibrate(8); callManager.toggleMute(); }} active={s.muted} label={s.muted ? 'Unmute' : 'Mute'}>{s.muted ? <MicOff size={22} /> : <Mic size={22} />}</CtrlBtn>
         {isVideo && <CtrlBtn onClick={() => callManager.toggleCamera()} active={s.cameraOff} disabled={s.noCamera} label={s.cameraOff ? 'Camera on' : 'Camera off'}>{s.cameraOff || s.noCamera ? <VideoOff size={22} /> : <Video size={22} />}</CtrlBtn>}
-        {canFlip && <CtrlBtn onClick={() => callManager.switchCamera()} label="Flip"><SwitchCamera size={22} /></CtrlBtn>}
+        {canFlip && <CtrlBtn onClick={flipCamera} label="Flip"><SwitchCamera size={22} /></CtrlBtn>}
         {isVideo && <CtrlBtn onClick={() => callManager.toggleScreenShare()} active={s.sharing} disabled={!s.sharing && !shareReady} label={shareLabel}>{s.sharing ? <MonitorOff size={22} /> : <MonitorUp size={22} />}</CtrlBtn>}
         <CtrlBtn onClick={() => setPanel((v) => !v)} active={panel} label="Devices"><Settings2 size={22} /></CtrlBtn>
         <CtrlBtn onClick={() => { vibrate(20); callManager.end(); }} danger label={s.status === 'outgoing' ? 'Cancel' : 'End'}><PhoneOff size={24} /></CtrlBtn>
