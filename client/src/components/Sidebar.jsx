@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MessageSquare, Users, Radio, Phone, Bell, Search, LogOut, Settings, X, Video, PhoneIncoming, PhoneOutgoing,
-  PhoneMissed, UserPlus, UserMinus, Check, CheckCheck, User, MessageSquarePlus, Download, Pencil, ChevronRight, Share,
+  PhoneMissed, UserPlus, UserMinus, Check, CheckCheck, User, MessageSquarePlus, Download, Pencil, ChevronRight, Share, KeyRound,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import BottomSheet from './BottomSheet';
@@ -235,6 +235,7 @@ function MeTab() {
       </button>
       <div className="mt-2 border-t border-line">
         <Item icon={Pencil} label="Edit profile" onClick={() => navigate('/profile')} />
+        <Item icon={KeyRound} label="Change password" onClick={() => navigate('/profile#change-password')} />
         <Item icon={Settings} label="Calls, audio & notifications" onClick={() => navigate('/settings')} />
         {!standalone && !installed && (installEvent || ios) && <Item icon={Download} label="Install Pulse as an app" onClick={install} />}
         <Item icon={LogOut} label="Log out" danger onClick={logout} />

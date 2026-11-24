@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AuthLayout from './AuthLayout';
+import PasswordInput from '../components/PasswordInput';
 import { useAuthStore } from '../context/authStore';
 import { errMsg } from '../services/api';
 
@@ -27,8 +28,8 @@ export default function Register() {
       <form onSubmit={submit} className="space-y-4">
         <input className="input" placeholder="Full name" autoComplete="name" required minLength={2} maxLength={50} value={form.name} onChange={set('name')} />
         <input className="input" type="email" placeholder="Email" autoComplete="email" required value={form.email} onChange={set('email')} />
-        <input className="input" type="password" placeholder="Password (min 6 characters)" autoComplete="new-password" required minLength={6} value={form.password} onChange={set('password')} />
-        <input className="input" type="password" placeholder="Confirm password" autoComplete="new-password" required value={form.confirm} onChange={set('confirm')} />
+        <PasswordInput placeholder="Password (min 6 characters)" autoComplete="new-password" required minLength={6} value={form.password} onChange={set('password')} />
+        <PasswordInput placeholder="Confirm password" autoComplete="new-password" required value={form.confirm} onChange={set('confirm')} />
         <button className="btn-primary w-full" disabled={busy}>{busy ? 'Creating…' : 'Sign up'}</button>
       </form>
     </AuthLayout>

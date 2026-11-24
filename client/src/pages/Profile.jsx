@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Camera } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Avatar from '../components/Avatar';
+import PasswordInput from '../components/PasswordInput';
 import { useAuthStore } from '../context/authStore';
 import { userApi, errMsg } from '../services/api';
 
@@ -12,7 +13,14 @@ export default function Profile() {
   const [form, setForm] = useState({ name: user.name, about: user.about });
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '' });
   const [busy, setBusy] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (window.location.hash === '#change-password') {
+      requestAnimationFrame(() => document.getElementById('change-password')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+  }, []);
 
   const save = async (e) => {
     e.preventDefault();
@@ -34,12 +42,14 @@ export default function Profile() {
 
   const changePw = async (e) => {
     e.preventDefault();
+    setPwBusy(true);
     try {
       const res = await userApi.changePassword(pw);
       applyAuth(res); // other sessions are invalidated; keep this one
       setPw({ currentPassword: '', newPassword: '' });
       toast.success('Password changed');
     } catch (err) { toast.error(errMsg(err)); }
+    finally { setPwBusy(false); }
   };
 
   return (
@@ -65,11 +75,11 @@ export default function Profile() {
           <button className="btn-primary" disabled={busy}>Save changes</button>
         </form>
 
-        <form onSubmit={changePw} className="space-y-4 border-t border-line pt-6">
+        <form id="change-password" onSubmit={changePw} className="scroll-mt-4 space-y-4 border-t border-line pt-6">
           <h2 className="font-semibold">Change password</h2>
-          <input className="input" type="password" placeholder="Current password" autoComplete="current-password" required value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} />
-          <input className="input" type="password" placeholder="New password" autoComplete="new-password" required minLength={6} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
-          <button className="btn-primary">Update password</button>
+          <PasswordInput placeholder="Current password" autoComplete="current-password" required value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} />
+          <PasswordInput placeholder="New password" autoComplete="new-password" required minLength={6} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
+          <button className="btn-primary" disabled={pwBusy}>{pwBusy ? 'Updating…' : 'Update password'}</button>
         </form>
       </div>
     </div>
