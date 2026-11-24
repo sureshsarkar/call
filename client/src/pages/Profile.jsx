@@ -68,7 +68,7 @@ export default function Profile() {
         <form onSubmit={changePw} className="space-y-4 border-t border-line pt-6">
           <h2 className="font-semibold">Change password</h2>
           <input className="input" type="password" placeholder="Current password" autoComplete="current-password" required value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} />
-          <input className="input" type="password" placeholder="New password" autoComplete="new-password" required minLength={8} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
+          <input className="input" type="password" placeholder="New password" autoComplete="new-password" required minLength={6} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
           <button className="btn-primary">Update password</button>
         </form>
       </div>

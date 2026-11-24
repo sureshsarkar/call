@@ -29,7 +29,7 @@ export default function ResetPassword() {
     <AuthLayout title="Reset password" subtitle="Choose a new password for your account."
       footer={<Link to="/login" className="font-medium text-brand hover:underline">Back to log in</Link>}>
       <form onSubmit={submit} className="space-y-4">
-        <input className="input" type="password" placeholder="New password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input className="input" type="password" placeholder="New password" autoComplete="new-password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} />
         <input className="input" type="password" placeholder="Confirm new password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         <button className="btn-primary w-full" disabled={busy}>{busy ? 'Saving…' : 'Update password'}</button>
       </form>
