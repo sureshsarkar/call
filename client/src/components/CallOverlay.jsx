@@ -156,15 +156,15 @@ function ActiveCall() {
   useWakeLock(true); // keep the screen on during a call
   const isVideo = s.type === 'video';
   const shareSupported = canShareScreen();
-  const shareReady = shareSupported && s.status === 'connected';
+  const shareReady = shareSupported && ['connecting', 'connected', 'reconnecting'].includes(s.status);
   const shareLabel = s.sharing
     ? 'Stop share'
     : !window.isSecureContext
       ? 'Screen sharing requires HTTPS'
       : !shareSupported
         ? 'Screen sharing is unavailable in this browser'
-        : s.status !== 'connected'
-          ? 'Share screen when call is connected'
+        : !['connecting', 'connected', 'reconnecting'].includes(s.status)
+          ? 'Share screen when the call is active'
           : 'Share screen';
   const canFlip = isVideo && !s.noCamera && (s.devices.cams.length > 1 || /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent));
   const hasRemoteVideo = isVideo && (s.remoteStream?.getVideoTracks().length || 0) > 0 && !s.remoteCameraOff;
