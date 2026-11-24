@@ -8,8 +8,9 @@ const { escapeRegex, cleanLabel } = require('../utils/text');
 const { hasImageSignature, avatarDir } = require('../middleware/upload');
 const { signToken } = require('../middleware/auth');
 const { onlineUsers } = require('../sockets/state');
+const { normalizeUsername, normalizePhone } = require('../utils/identity');
 
-const PUBLIC_FIELDS = 'name avatar about isOnline lastSeen';
+const PUBLIC_FIELDS = 'name username avatar about isOnline lastSeen';
 
 exports.searchUsers = asyncHandler(async (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -17,7 +18,11 @@ exports.searchUsers = asyncHandler(async (req, res) => {
   // partial match on name, exact match on email (prevents harvesting addresses)
   const users = await User.find({
     _id: { $ne: req.user._id },
-    $or: [{ name: new RegExp(escapeRegex(q), 'i') }, { email: q.toLowerCase() }],
+    $or: [
+      { name: new RegExp(escapeRegex(q), 'i') },
+      { username: new RegExp(`^${escapeRegex(q.replace(/^@/, ''))}$`, 'i') },
+      { email: q.toLowerCase() },
+    ],
   })
     .select(PUBLIC_FIELDS)
     .limit(20)
@@ -41,6 +46,10 @@ exports.onlineUsers = asyncHandler(async (req, res) => {
 exports.updateProfile = asyncHandler(async (req, res) => {
   if (req.body.name !== undefined) req.user.name = cleanLabel(req.body.name, 50);
   if (req.body.about !== undefined) req.user.about = cleanLabel(req.body.about, 140);
+  if (req.body.username !== undefined) req.user.username = req.body.username ? normalizeUsername(req.body.username) : undefined;
+  if (req.body.phone !== undefined) req.user.phone = req.body.phone ? normalizePhone(req.body.phone) : undefined;
+  if (req.body.username && await User.exists({ _id: { $ne: req.user._id }, username: req.user.username })) throw new ApiError(409, 'That username is already taken');
+  if (req.body.phone && await User.exists({ _id: { $ne: req.user._id }, phone: req.user.phone })) throw new ApiError(409, 'An account with this mobile number already exists');
   await req.user.save();
   res.json({ user: req.user.toSelf() });
 });

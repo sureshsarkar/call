@@ -10,7 +10,7 @@ import { userApi, errMsg } from '../services/api';
 export default function Profile() {
   const navigate = useNavigate();
   const { user, updateProfile, uploadAvatar, applyAuth } = useAuthStore();
-  const [form, setForm] = useState({ name: user.name, about: user.about });
+  const [form, setForm] = useState({ name: user.name, about: user.about, username: user.username || '', phone: user.phone || '' });
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '' });
   const [busy, setBusy] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
@@ -71,7 +71,9 @@ export default function Profile() {
 
         <form onSubmit={save} className="space-y-4">
           <label className="block text-sm text-mute">Name<input className="input mt-1" value={form.name} minLength={2} maxLength={50} required onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+          <label className="block text-sm text-mute">Username<input className="input mt-1" autoComplete="username" placeholder="Choose a username" pattern="[A-Za-z0-9._]{3,30}" title="Use 3-30 letters, numbers, dots or underscores" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></label>
           <label className="block text-sm text-mute">About<input className="input mt-1" value={form.about} maxLength={140} onChange={(e) => setForm({ ...form, about: e.target.value })} /></label>
+          <label className="block text-sm text-mute">Mobile number<input className="input mt-1" type="tel" autoComplete="tel" placeholder="Optional, e.g. +91 9876543210" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
           <button className="btn-primary" disabled={busy}>Save changes</button>
         </form>
 

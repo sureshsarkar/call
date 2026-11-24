@@ -9,7 +9,7 @@ import { errMsg } from '../services/api';
 export default function Register() {
   const register = useAuthStore((s) => s.register);
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
+  const [form, setForm] = useState({ name: '', username: '', email: '', phone: '', password: '', confirm: '' });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -17,7 +17,7 @@ export default function Register() {
     e.preventDefault();
     if (form.password !== form.confirm) { toast.error('Passwords do not match'); return; }
     setBusy(true);
-    try { await register({ name: form.name, email: form.email, password: form.password }); navigate('/', { replace: true }); }
+    try { await register({ name: form.name, username: form.username, email: form.email, phone: form.phone, password: form.password }); navigate('/', { replace: true }); }
     catch (err) { toast.error(errMsg(err)); }
     finally { setBusy(false); }
   };
@@ -27,7 +27,9 @@ export default function Register() {
       footer={<>Already have an account? <Link to="/login" className="font-medium text-brand hover:underline">Log in</Link></>}>
       <form onSubmit={submit} className="space-y-4">
         <input className="input" placeholder="Full name" autoComplete="name" required minLength={2} maxLength={50} value={form.name} onChange={set('name')} />
+        <input className="input" placeholder="Username" autoComplete="username" required minLength={3} maxLength={30} pattern="[A-Za-z0-9._]{3,30}" title="Use 3-30 letters, numbers, dots or underscores" value={form.username} onChange={set('username')} />
         <input className="input" type="email" placeholder="Email" autoComplete="email" required value={form.email} onChange={set('email')} />
+        <input className="input" type="tel" placeholder="Mobile number (optional, e.g. +91 9876543210)" autoComplete="tel" value={form.phone} onChange={set('phone')} />
         <PasswordInput placeholder="Password (min 6 characters)" autoComplete="new-password" required minLength={6} value={form.password} onChange={set('password')} />
         <PasswordInput placeholder="Confirm password" autoComplete="new-password" required value={form.confirm} onChange={set('confirm')} />
         <button className="btn-primary w-full" disabled={busy}>{busy ? 'Creating…' : 'Sign up'}</button>

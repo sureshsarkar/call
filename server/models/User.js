@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema(
       trim: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Invalid email address'],
     },
+    username: { type: String, lowercase: true, trim: true, minlength: 3, maxlength: 30 },
+    phone: { type: String, trim: true },
     password: { type: String, required: true, minlength: 6, select: false },
     avatar: { type: String, default: '' },
     about: { type: String, maxlength: 140, default: 'Hey there! I am using Pulse.' },
@@ -27,6 +29,8 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ name: 1 });
 userSchema.index({ isOnline: 1 });
+userSchema.index({ username: 1 }, { unique: true, sparse: true });
+userSchema.index({ phone: 1 }, { unique: true, sparse: true });
 
 userSchema.pre('save', async function hashPassword() {
   if (!this.isModified('password')) return;
@@ -42,6 +46,7 @@ userSchema.methods.toPublic = function toPublic() {
   return {
     _id: this._id,
     name: this.name,
+    username: this.username,
     avatar: this.avatar,
     about: this.about,
     isOnline: this.isOnline,
@@ -51,7 +56,7 @@ userSchema.methods.toPublic = function toPublic() {
 
 /** Fields for the account owner. */
 userSchema.methods.toSelf = function toSelf() {
-  return { ...this.toPublic(), email: this.email, contacts: this.contacts, createdAt: this.createdAt };
+  return { ...this.toPublic(), email: this.email, phone: this.phone, contacts: this.contacts, createdAt: this.createdAt };
 };
 
 module.exports = mongoose.model('User', userSchema);

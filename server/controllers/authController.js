@@ -6,20 +6,32 @@ const config = require('../config/env');
 const { cleanLabel } = require('../utils/text');
 const { signToken } = require('../middleware/auth');
 const { sendMail } = require('../services/mail');
+const { normalizeUsername, normalizePhone } = require('../utils/identity');
 
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
 exports.register = asyncHandler(async (req, res) => {
   const { name, email, password } = req.body;
+  const username = normalizeUsername(req.body.username);
+  const phone = normalizePhone(req.body.phone);
   if (await User.exists({ email })) throw new ApiError(409, 'An account with this email already exists');
-  const user = await User.create({ name: cleanLabel(name, 50), email, password });
+  if (await User.exists({ username })) throw new ApiError(409, 'That username is already taken');
+  if (phone && await User.exists({ phone })) throw new ApiError(409, 'An account with this mobile number already exists');
+  const user = await User.create({ name: cleanLabel(name, 50), email, username, ...(phone ? { phone } : {}), password });
   res.status(201).json({ token: signToken(user), user: user.toSelf() });
 });
 
 exports.login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  const user = await User.findOne({ email }).select('+password +tokenVersion');
-  if (!user || !(await user.comparePassword(password))) throw new ApiError(401, 'Invalid email or password');
+  const identifier = String(req.body.identifier || req.body.email || '').trim();
+  const { password } = req.body;
+  let accountQuery;
+  if (identifier.includes('@')) accountQuery = { email: identifier.toLowerCase() };
+  else {
+    const phone = normalizePhone(identifier);
+    accountQuery = phone ? { phone } : { username: normalizeUsername(identifier) };
+  }
+  const user = await User.findOne(accountQuery).select('+password +tokenVersion');
+  if (!user || !(await user.comparePassword(password))) throw new ApiError(401, 'Invalid username, email, mobile number or password');
   res.json({ token: signToken(user), user: user.toSelf() });
 });
 

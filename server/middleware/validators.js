@@ -1,14 +1,22 @@
 const { body, param, query } = require('express-validator');
+const { normalizePhone } = require('../utils/identity');
 
 const objectId = (name, where = param) => where(name).isMongoId().withMessage('Invalid id');
 
 exports.register = [
   body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be 2-50 characters'),
   body('email').trim().isEmail().withMessage('Enter a valid email').normalizeEmail({ gmail_remove_dots: false }),
+  body('username').isString().trim().matches(/^[a-zA-Z0-9._]{3,30}$/).withMessage('Username must be 3-30 characters using letters, numbers, dots or underscores'),
+  body('phone').optional({ checkFalsy: true }).isString().bail().trim().custom((value) => Boolean(normalizePhone(value))).withMessage('Enter a valid mobile number (10-digit Indian number or international number with country code)'),
   body('password').isString().isLength({ min: 6, max: 128 }).withMessage('Password must be at least 6 characters'),
 ];
 exports.login = [
-  body('email').trim().isEmail().withMessage('Enter a valid email').normalizeEmail({ gmail_remove_dots: false }),
+  body('identifier').custom((value, { req }) => {
+    const identity = value ?? req.body.email;
+    return typeof identity === 'string' && Boolean(identity.trim());
+  }).withMessage('Enter your username, email or mobile number'),
+  body('identifier').optional().isString().trim().isLength({ max: 254 }).withMessage('Login identifier is too long'),
+  body('email').optional().isString().trim().isLength({ max: 254 }).withMessage('Login identifier is too long'),
   body('password').isString().notEmpty().withMessage('Password is required'),
 ];
 exports.forgot = [body('email').trim().isEmail().withMessage('Enter a valid email').normalizeEmail({ gmail_remove_dots: false })];
@@ -23,6 +31,8 @@ exports.changePassword = [
 exports.updateProfile = [
   body('name').optional().trim().isLength({ min: 2, max: 50 }).withMessage('Name must be 2-50 characters'),
   body('about').optional().trim().isLength({ max: 140 }).withMessage('About must be at most 140 characters'),
+  body('username').optional({ checkFalsy: true }).isString().trim().matches(/^[a-zA-Z0-9._]{3,30}$/).withMessage('Username must be 3-30 characters using letters, numbers, dots or underscores'),
+  body('phone').optional({ checkFalsy: true }).isString().bail().trim().custom((value) => Boolean(normalizePhone(value))).withMessage('Enter a valid mobile number (10-digit Indian number or international number with country code)'),
 ];
 exports.idParam = [objectId('id')];
 exports.userIdParam = [objectId('userId')];
