@@ -80,6 +80,31 @@ export const contentApi = {
   list: (params) => api.get('/content', { params }).then((r) => r.data.entries),
   get: (slug) => api.get(`/content/${encodeURIComponent(slug)}`).then((r) => r.data.entry),
 };
+export const groupApi = {
+  list: () => api.get('/groups').then((r) => r.data),
+  create: (body) => api.post('/groups', body).then((r) => r.data.group),
+  get: (id) => api.get(`/groups/${id}`).then((r) => r.data),
+  update: (id, body) => api.patch(`/groups/${id}`, body).then((r) => r.data.group),
+  uploadAvatar: (id, file) => { const fd = new FormData(); fd.append('avatar', file); return api.post(`/groups/${id}/avatar`, fd).then((r) => r.data); },
+  addMembers: (id, memberIds) => api.post(`/groups/${id}/members`, { memberIds }).then((r) => r.data.group),
+  removeMember: (id, userId) => api.delete(`/groups/${id}/members/${userId}`).then((r) => r.data.group),
+  setMemberRole: (id, userId, role) => api.patch(`/groups/${id}/members/${userId}/role`, { role }).then((r) => r.data.group),
+  leave: (id) => api.post(`/groups/${id}/leave`).then((r) => r.data),
+  mute: (id, muted) => api.put(`/groups/${id}/mute`, { muted }).then((r) => r.data),
+  invite: (id, origin) => api.post(`/groups/${id}/invite`, { origin }).then((r) => r.data),
+  joinInvite: (code) => api.post(`/groups/join/${encodeURIComponent(code)}`).then((r) => r.data),
+  requests: (id, requestId, approve) => api.post(`/groups/${id}/requests/${requestId}`, { approve }).then((r) => r.data),
+  history: (id, before) => api.get(`/groups/${id}/messages`, { params: { before, limit: 40 } }).then((r) => r.data),
+  uploadMessage: (id, file, text = '', replyToMessageId = null, forwarded = false) => { const fd = new FormData(); fd.append('file', file); fd.append('text', text); if (replyToMessageId) fd.append('replyToMessageId', replyToMessageId); if (forwarded) fd.append('forwarded', 'true'); return api.post(`/groups/${id}/messages/upload`, fd, { timeout: 120000 }).then((r) => r.data.message); },
+  downloadFile: (groupId, fileId) => api.get(`/groups/${groupId}/files/${encodeURIComponent(fileId)}`, { responseType: 'blob' }).then((r) => r.data),
+  getMessage: (groupId, messageId) => api.get(`/groups/${groupId}/messages/${messageId}`).then((r) => r.data.message),
+  markRead: (id) => api.post(`/groups/${id}/read`).then((r) => r.data),
+  react: (groupId, messageId, emoji) => api.put(`/groups/${groupId}/messages/${messageId}/reaction`, { emoji }).then((r) => r.data.message),
+  edit: (groupId, messageId, text) => api.patch(`/groups/${groupId}/messages/${messageId}`, { text }).then((r) => r.data.message),
+  remove: (groupId, messageId) => api.delete(`/groups/${groupId}/messages/${messageId}`).then((r) => r.data),
+  report: (groupId, body) => api.post(`/groups/${groupId}/reports`, body).then((r) => r.data),
+  activity: (id) => api.get(`/groups/${id}/activity`).then((r) => r.data.activity),
+};
 export const adminApi = {
   dashboard: () => api.get('/admin/dashboard').then((r) => r.data),
   users: (params) => api.get('/admin/users', { params }).then((r) => r.data),
@@ -109,6 +134,8 @@ export const adminApi = {
   createContent: (body) => api.post('/admin/content', body).then((r) => r.data.entry),
   updateContent: (id, body) => api.put(`/admin/content/${id}`, body).then((r) => r.data.entry),
   deleteContent: (id) => api.delete(`/admin/content/${id}`).then((r) => r.data),
+  groupReports: (params) => api.get('/admin/group-reports', { params }).then((r) => r.data.reports),
+  reviewGroupReport: (id, status) => api.put(`/admin/group-reports/${id}`, { status }).then((r) => r.data.report),
 };
 
 export default api;

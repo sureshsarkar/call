@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { getSocket, emitAck } from '../socket/socket';
 import { callApi } from '../services/api';
 import { useCallStore, resetCallStore } from '../context/callStore';
+import { useGroupCallStore } from '../context/groupCallStore';
 import { useAppConfigStore } from '../context/appConfigStore';
 import { useSettingsStore } from '../context/settingsStore';
 import { startRingtone, stopRingtone, playEnd } from '../utils/sounds';
@@ -309,7 +310,7 @@ class CallManager {
 
   // ------------------------------------------------------------------ public API: start / accept / reject / end
   async start(peer, type) {
-    if (this.busy) return toast.error('You are already in a call');
+    if (this.busy || useGroupCallStore.getState().phase !== 'idle') return toast.error('You are already in a call');
     if (!getSocket()?.connected) return toast.error('Not connected to the server. Please wait…');
     set({ status: 'outgoing', peer, type, isCaller: true, callId: null, connectedAt: null });
     this.resetInternals();
@@ -577,7 +578,7 @@ class CallManager {
   // ------------------------------------------------------------------ socket event handlers
   bind(socket) {
     socket.on('incoming_call', ({ callId, type, from }) => {
-      if (this.busy) { socket.emit('reject_call', { callId }); return; }
+      if (this.busy || useGroupCallStore.getState().phase !== 'idle') { socket.emit('reject_call', { callId }); return; }
       set({ status: 'incoming', callId, type, peer: from, isCaller: false, connectedAt: null, remoteSharing: false, remoteMuted: false, remoteCameraOff: false, peerStatus: 'ok' });
       if (useSettingsStore.getState().sounds) startRingtone(true);
       systemNotify(`Incoming ${type} call`, `${from.name} is calling you`, { tag: `call-${callId}` });

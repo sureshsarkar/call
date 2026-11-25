@@ -4,7 +4,8 @@ const notificationSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     from: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    type: { type: String, enum: ['message', 'missed_call', 'announcement'], required: true },
+    type: { type: String, enum: ['message', 'group_message', 'missed_call', 'announcement'], required: true },
+    group: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
     callType: { type: String, enum: ['audio', 'video'] },
     body: { type: String, maxlength: 200, default: '' },
     count: { type: Number, default: 1 },

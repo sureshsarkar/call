@@ -22,7 +22,7 @@ exports.errorHandler = (err, req, res, _next) => {
     message = 'Duplicate value';
   } else if (err.code === 'LIMIT_FILE_SIZE') {
     status = 413;
-    message = 'File is too large (max 2MB)';
+    message = req.originalUrl.includes('/groups/') ? 'File is too large (server upload limit is 100 MB)' : 'File is too large (max 2MB)';
   }
 
   if (status >= 500) {

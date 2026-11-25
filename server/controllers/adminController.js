@@ -15,6 +15,9 @@ const AdminAnnouncement = require('../models/AdminAnnouncement');
 const ContentEntry = require('../models/ContentEntry');
 const SystemEvent = require('../models/SystemEvent');
 const LoginEvent = require('../models/LoginEvent');
+const Group = require('../models/Group');
+const GroupMessage = require('../models/GroupMessage');
+const GroupReport = require('../models/GroupReport');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { normalizeUsername, normalizePhone } = require('../utils/identity');
@@ -59,11 +62,11 @@ exports.publicConfig = asyncHandler(async (_req, res) => {
 });
 
 exports.dashboard = asyncHandler(async (req, res) => {
-  const [totalUsers, activeUsers, onlineUsers, messages, calls, callStats, conversations, notifications, recentActivity, uploadsBytes] = await Promise.all([
+  const [totalUsers, activeUsers, onlineUsers, messages, calls, callStats, conversations, groups, groupMessages, openGroupReports, notifications, recentActivity, uploadsBytes] = await Promise.all([
     User.countDocuments(), User.countDocuments({ accountStatus: 'active' }), User.countDocuments({ isOnline: true }),
     Message.countDocuments(), CallHistory.countDocuments({ status: { $ne: 'ringing' } }),
     CallHistory.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-    Conversation.countDocuments(), Notification.countDocuments({ read: false }),
+    Conversation.countDocuments(), Group.countDocuments(), GroupMessage.countDocuments(), GroupReport.countDocuments({ status: 'open' }), Notification.countDocuments({ read: false }),
     AdminAuditLog.find().sort({ createdAt: -1 }).limit(10).populate('actor', 'name email role').lean(),
     directoryBytes(path.resolve(env.uploadDir)).catch(() => 0),
   ]);
@@ -73,7 +76,7 @@ exports.dashboard = asyncHandler(async (req, res) => {
   res.json({
     users: { total: totalUsers, active: activeUsers, inactive: totalUsers - activeUsers, online: onlineUsers, offline: totalUsers - onlineUsers },
     messages, calls, activeCalls: callCounts.answered || 0, completedCalls: callCounts.completed || 0,
-    callCounts, conversations, groups: 0, storage: { uploadsBytes, processRssBytes: mem.rss },
+    callCounts, conversations, groups, groupMessages, openGroupReports, storage: { uploadsBytes, processRssBytes: mem.rss },
     system: { status: 'ok', uptimeSeconds: Math.round(process.uptime()), node: process.version },
     unreadNotifications: notifications, recentActivity,
   });
@@ -262,6 +265,8 @@ exports.getConfig = asyncHandler(async (_req, res) => {
       messageTtlHours: defaults.messageTtlHours,
       maxMessageLength: defaults.maxMessageLength,
       callDurationLimitMinutes: defaults.callDurationLimitMinutes,
+      maxGroupMembers: defaults.maxGroupMembers,
+      maxGroupFileSizeMb: defaults.maxGroupFileSizeMb,
       features: defaults.features,
     },
   }, { upsert: true, new: true, setDefaultsOnInsert: true }).lean();
@@ -292,6 +297,16 @@ exports.updateConfig = asyncHandler(async (req, res) => {
     const n = Number(req.body.callDurationLimitMinutes);
     if (!Number.isInteger(n) || n < 0 || n > 1440) throw new ApiError(400, 'Call duration limit must be 0 to 1440 minutes');
     patch.callDurationLimitMinutes = n;
+  }
+  if (req.body.maxGroupMembers !== undefined) {
+    const n = Number(req.body.maxGroupMembers);
+    if (!Number.isInteger(n) || n < 2 || n > 512) throw new ApiError(400, 'Maximum group members must be from 2 to 512');
+    patch.maxGroupMembers = n;
+  }
+  if (req.body.maxGroupFileSizeMb !== undefined) {
+    const n = Number(req.body.maxGroupFileSizeMb);
+    if (!Number.isInteger(n) || n < 1 || n > 100) throw new ApiError(400, 'Maximum group file size must be from 1 to 100 MB');
+    patch.maxGroupFileSizeMb = n;
   }
   if (req.body.features !== undefined) {
     const keys = ['chat', 'audioCalls', 'videoCalls', 'screenSharing', 'groupChat', 'fileSharing', 'pushNotifications', 'pwaInstall', 'registration', 'userVerification'];

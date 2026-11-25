@@ -1,7 +1,13 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const Notification = require('../models/Notification');
-const { ttlSeconds } = require('../utils/retention');
+const GroupMessage = require('../models/GroupMessage');
+const { ttlSeconds, cutoff } = require('../utils/retention');
+const { groupMediaDir } = require('../middleware/groupUpload');
+const fs = require('fs');
+const path = require('path');
+
+let groupCleanupTimer = null;
 
 /**
  * Auto-delete: MongoDB TTL indexes remove chat data a fixed time after it was created.
@@ -31,8 +37,21 @@ async function ensureTtl(model, field) {
 
 async function ensureRetention() {
   await Promise.all([ensureTtl(Message, 'createdAt'), ensureTtl(Conversation, 'updatedAt'), ensureTtl(Notification, 'updatedAt')]);
+  await cleanupExpiredGroupMessages();
+  if (!groupCleanupTimer) {
+    groupCleanupTimer = setInterval(() => { void cleanupExpiredGroupMessages().catch((err) => console.error('[retention] group cleanup failed:', err.message)); }, 60_000);
+    groupCleanupTimer.unref?.();
+  }
   const s = ttlSeconds();
   console.log(s > 0 ? `[retention] chat data auto-deletes after ${s / 3600}h` : '[retention] auto-delete disabled');
+}
+
+async function cleanupExpiredGroupMessages() {
+  if (ttlSeconds() <= 0) return;
+  const expired = { createdAt: { $lt: cutoff() } };
+  const rows = await GroupMessage.find({ ...expired, 'attachment.fileId': { $exists: true } }).select('attachment.fileId').lean();
+  await Promise.all(rows.map((row) => fs.promises.unlink(path.join(groupMediaDir, path.basename(row.attachment.fileId))).catch(() => {})));
+  await GroupMessage.deleteMany(expired);
 }
 
 module.exports = { ensureRetention };

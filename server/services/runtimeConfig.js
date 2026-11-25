@@ -1,7 +1,7 @@
 const AppConfig = require('../models/AppConfig');
 const env = require('../config/env');
 
-const defaults = { appName: 'Pulse', maintenanceMode: false, messageTtlHours: env.messageTtlHours, maxMessageLength: 4000, callDurationLimitMinutes: 0, features: { chat: true, audioCalls: true, videoCalls: true, screenSharing: true, groupChat: false, fileSharing: false, pushNotifications: true, pwaInstall: true, registration: true, userVerification: false } };
+const defaults = { appName: 'Pulse', maintenanceMode: false, messageTtlHours: env.messageTtlHours, maxMessageLength: 4000, callDurationLimitMinutes: 0, maxGroupMembers: 256, maxGroupFileSizeMb: 25, features: { chat: true, audioCalls: true, videoCalls: true, screenSharing: true, groupChat: true, fileSharing: true, pushNotifications: true, pwaInstall: true, registration: true, userVerification: false } };
 let current = { ...defaults, features: { ...defaults.features } };
 
 function applyRuntimeConfig(value) {

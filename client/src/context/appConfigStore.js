@@ -7,9 +7,11 @@ const defaults = {
   messageTtlHours: 24,
   maxMessageLength: 4000,
   callDurationLimitMinutes: 0,
+  maxGroupMembers: 256,
+  maxGroupFileSizeMb: 25,
   features: {
     chat: true, audioCalls: true, videoCalls: true, screenSharing: true,
-    groupChat: false, fileSharing: false, pushNotifications: true,
+    groupChat: true, fileSharing: true, pushNotifications: true,
     pwaInstall: true, registration: true, userVerification: false,
   },
 };

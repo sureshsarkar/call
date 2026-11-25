@@ -85,6 +85,7 @@ function MessageBubble({ message, mine, onDelete, onRetry, onLongPress, onReply,
     if (!item || item.unavailable) return 'Original message unavailable';
     if (item.deletedForEveryone) return 'This message was deleted';
     if (item.text) return item.text;
+    if (item.attachment?.type) return `${item.attachment.type === 'image' ? '📷' : item.attachment.type === 'video' ? '🎥' : item.attachment.type === 'audio' ? '🎵' : '📄'} ${item.attachment.name || item.attachment.type}`;
     const type = String(item.type || '').toLowerCase();
     if (type.includes('image') || item.image) return '📷 Image';
     if (type.includes('video') || item.video) return '🎥 Video';

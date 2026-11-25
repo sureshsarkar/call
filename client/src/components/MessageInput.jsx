@@ -6,7 +6,7 @@ import { vibrate } from '../utils/haptics';
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const isPhone = () => window.matchMedia('(max-width: 767px)').matches;
 
-export default function MessageInput({ userId, onSend, reply, onCancelReply, disabled = false, maxMessageLength = 4000 }) {
+export default function MessageInput({ userId, groupId, onSend, reply, onCancelReply, leadingActions, disabled = false, maxMessageLength = 4000 }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const ref = useRef(null);
@@ -15,9 +15,9 @@ export default function MessageInput({ userId, onSend, reply, onCancelReply, dis
 
   const stopTyping = useCallback(() => {
     clearTimeout(stopTimer.current);
-    if (lastTyping.current) getSocket()?.emit('stop_typing', { to: userId });
+    if (lastTyping.current) getSocket()?.emit(groupId ? 'group_stop_typing' : 'stop_typing', groupId ? { groupId } : { to: userId });
     lastTyping.current = 0;
-  }, [userId]);
+  }, [userId, groupId]);
 
   useEffect(() => { setText(''); setShowEmoji(false); return stopTyping; }, [userId, stopTyping]);
 
@@ -32,7 +32,7 @@ export default function MessageInput({ userId, onSend, reply, onCancelReply, dis
   const onChange = (e) => {
     setText(e.target.value);
     const now = Date.now();
-    if (now - lastTyping.current > 2000) { getSocket()?.emit('typing', { to: userId }); lastTyping.current = now; }
+    if (now - lastTyping.current > 2000) { getSocket()?.emit(groupId ? 'group_typing' : 'typing', groupId ? { groupId } : { to: userId }); lastTyping.current = now; }
     clearTimeout(stopTimer.current);
     stopTimer.current = setTimeout(stopTyping, 1500);
   };
@@ -69,7 +69,7 @@ export default function MessageInput({ userId, onSend, reply, onCancelReply, dis
       {reply && <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border-l-[3px] border-brand bg-panel3 px-3 py-2 md:mx-4">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-brand">Replying to {reply.sender?.name || 'message'}</p>
-          <p className="truncate text-sm text-mute">{reply.deletedForEveryone ? 'This message was deleted' : reply.text || (reply.type ? reply.type[0].toUpperCase() + reply.type.slice(1) : reply.fileName || (reply.image ? 'Image' : reply.video ? 'Video' : reply.attachment ? 'Attachment' : 'Message'))}</p>
+          <p className="truncate text-sm text-mute">{reply.unavailable ? 'Original message unavailable' : reply.deletedForEveryone ? 'This message was deleted' : reply.text || (reply.attachment?.name ? `${reply.attachment.type}: ${reply.attachment.name}` : reply.type ? reply.type[0].toUpperCase() + reply.type.slice(1) : reply.fileName || (reply.image ? 'Image' : reply.video ? 'Video' : reply.attachment ? 'Attachment' : 'Message'))}</p>
         </div>
         <button onClick={onCancelReply} aria-label="Cancel reply" className="btn-icon h-8 w-8 shrink-0 text-mute"><X size={18} /></button>
       </div>}
@@ -87,6 +87,7 @@ export default function MessageInput({ userId, onSend, reply, onCancelReply, dis
           {showEmoji ? <Keyboard size={24} className="md:hidden" /> : null}
           {showEmoji ? <Smile size={24} className="hidden text-brand md:block" /> : <Smile size={25} />}
         </button>
+        {leadingActions}
         <textarea
           ref={ref}
           rows={1}

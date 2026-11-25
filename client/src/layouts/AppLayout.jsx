@@ -2,16 +2,21 @@ import { useEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import CallOverlay from '../components/CallOverlay';
+import GroupCallOverlay from '../components/GroupCallOverlay';
 import useSocket from '../hooks/useSocket';
 import useViewportHeight from '../hooks/useViewportHeight';
 import { useChatStore } from '../context/chatStore';
 import { useAuthStore } from '../context/authStore';
 import { useAppConfigStore } from '../context/appConfigStore';
+import { useGroupStore } from '../context/groupStore';
+import { groupApi } from '../services/api';
+import toast from 'react-hot-toast';
 
 export default function AppLayout() {
   useSocket();
   useViewportHeight();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const navigate = useNavigate();
   const atRoot = pathname === '/';
   const appName = useAppConfigStore((s) => s.config.appName);
@@ -21,7 +26,32 @@ export default function AppLayout() {
   useEffect(() => {
     useChatStore.getState().loadConversations();
     useChatStore.getState().loadNotifications();
+    useGroupStore.getState().loadGroups();
   }, []);
+
+  useEffect(() => {
+    const invite = new URLSearchParams(location.search).get('joinGroup');
+    if (!invite) return;
+    let cancelled = false;
+    groupApi.joinInvite(invite).then(async (result) => {
+      if (cancelled) return;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('joinGroup');
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+      if (result.joined) {
+        await useGroupStore.getState().loadGroups();
+        navigate(`/group/${result.groupId}`, { replace: true });
+      } else if (result.requested) toast.success('Join request sent to the group admins');
+    }).catch((error) => {
+      if (!cancelled) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('joinGroup');
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+        toast.error(error.response?.data?.message || 'This group invitation could not be used');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [location.search, navigate]);
 
   // keep the screen in step with server-side auto-delete (24h by default)
   useEffect(() => {
@@ -31,7 +61,8 @@ export default function AppLayout() {
 
   // Dynamic title with unread count
   const unread = useChatStore((s) => s.conversations.reduce((a, c) => a + c.unreadCount, 0));
-  useEffect(() => { document.title = unread ? `(${unread}) ${appName}` : `${appName} – Chat, Audio & Video Calls`; }, [unread, appName]);
+  const groupUnread = useGroupStore((s) => s.groups.reduce((total, group) => total + (group.unreadCount || 0), 0));
+  useEffect(() => { const count = unread + groupUnread; document.title = count ? `(${count}) ${appName}` : `${appName} – Chat, Audio & Video Calls`; }, [unread, groupUnread, appName]);
 
   // iOS-style swipe from the left edge to go back (phones only)
   const touch = useRef(null);
@@ -58,6 +89,7 @@ export default function AppLayout() {
         <Outlet />
       </main>
       <CallOverlay />
+      <GroupCallOverlay />
     </div>
   );
 }

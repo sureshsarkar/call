@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AuthLayout from './AuthLayout';
 import PasswordInput from '../components/PasswordInput';
@@ -11,6 +11,7 @@ export default function Register() {
   const register = useAuthStore((s) => s.register);
   const registrationEnabled = useAppConfigStore((s) => s.config.features.registration !== false);
   const navigate = useNavigate();
+  const loc = useLocation();
   const [form, setForm] = useState({ name: '', username: '', email: '', phone: '', password: '', confirm: '' });
   const [busy, setBusy] = useState(false);
   const [pendingVerification, setPendingVerification] = useState(false);
@@ -23,7 +24,7 @@ export default function Register() {
     try {
       const result = await register({ name: form.name, username: form.username, email: form.email, phone: form.phone, password: form.password });
       if (result.requiresVerification) { setPendingVerification(true); return; }
-      navigate('/', { replace: true });
+      navigate(loc.state?.from || '/', { replace: true });
     }
     catch (err) { toast.error(errMsg(err)); }
     finally { setBusy(false); }
@@ -31,7 +32,7 @@ export default function Register() {
 
   return (
     <AuthLayout title="Create your account" subtitle="Start chatting and calling in seconds."
-      footer={<>Already have an account? <Link to="/login" className="font-medium text-brand hover:underline">Log in</Link></>}>
+      footer={<>Already have an account? <Link to="/login" state={{ from: loc.state?.from }} className="font-medium text-brand hover:underline">Log in</Link></>}>
       {!registrationEnabled ? <div className="rounded-xl border border-line bg-panel2 p-4 text-sm leading-6 text-mute">New account registration is temporarily closed.</div> : pendingVerification ? <div className="rounded-xl border border-line bg-panel2 p-4 text-sm leading-6 text-mute">Your account was created and is waiting for administrator verification. You can log in after an administrator verifies it.</div> :
       <form onSubmit={submit} className="space-y-4">
         <input className="input" placeholder="Full name" autoComplete="name" required minLength={2} maxLength={50} value={form.name} onChange={set('name')} />

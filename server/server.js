@@ -6,6 +6,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 const User = require('./models/User');
+const AppConfig = require('./models/AppConfig');
 const { loadRuntimeConfig } = require('./services/runtimeConfig');
 
 const config = require('./config/env');
@@ -50,6 +51,9 @@ async function start() {
   await User.updateMany({ accountStatus: { $exists: false } }, { $set: { accountStatus: 'active' } });
   await User.updateMany({ isVerified: { $exists: false } }, { $set: { isVerified: false } });
   await User.updateMany({ twoFactorEnabled: { $exists: false } }, { $set: { twoFactorEnabled: false } });
+  // Group chat was previously a disabled placeholder toggle; enable it now that the module exists.
+  await AppConfig.updateOne({ key: 'global', groupChatMigrationV1: { $ne: true } }, { $set: { 'features.groupChat': true, groupChatMigrationV1: true } });
+  await AppConfig.updateOne({ key: 'global', groupMediaMigrationV1: { $ne: true } }, { $set: { 'features.fileSharing': true, groupMediaMigrationV1: true } });
   await loadRuntimeConfig();
   try { await require('./services/retention').ensureRetention(); } catch (err) { console.error('[retention] could not set up auto-delete:', err.message); }
   if (config.superAdminEmail) {

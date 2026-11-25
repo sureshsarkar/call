@@ -7,6 +7,7 @@ exports.list = asyncHandler(async (req, res) => {
     .sort({ updatedAt: -1 })
     .limit(50)
     .populate('from', 'name avatar')
+    .populate('group', 'name avatar')
     .lean();
   res.json({ notifications, unread: notifications.filter((n) => !n.read).length });
 });

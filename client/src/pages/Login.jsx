@@ -31,7 +31,7 @@ export default function Login() {
 
   return (
     <AuthLayout title="Welcome back" subtitle="Log in to continue to your conversations."
-      footer={registrationEnabled ? <>New to Pulse? <Link to="/register" className="font-medium text-brand hover:underline">Create an account</Link></> : 'New account registration is temporarily closed.'}>
+      footer={registrationEnabled ? <>New to Pulse? <Link to="/register" state={{ from: loc.state?.from }} className="font-medium text-brand hover:underline">Create an account</Link></> : 'New account registration is temporarily closed.'}>
       <form onSubmit={submit} className="space-y-4">
         <input className="input" placeholder="Username, email or mobile number" autoComplete="username" required value={form.identifier} onChange={set('identifier')} />
         <PasswordInput placeholder="Password" autoComplete="current-password" required value={form.password} onChange={set('password')} />

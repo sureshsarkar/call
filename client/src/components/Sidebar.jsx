@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MessageSquare, Users, Radio, Phone, Bell, Search, LogOut, Settings, X, Video, PhoneIncoming, PhoneOutgoing,
-  PhoneMissed, UserPlus, UserMinus, Check, CheckCheck, User, MessageSquarePlus, Download, Pencil, ChevronRight, Share, KeyRound, Shield,
+  PhoneMissed, UserPlus, UserMinus, Check, CheckCheck, User, MessageSquarePlus, Download, Pencil, ChevronRight, Share, KeyRound, Shield, UsersRound,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import BottomSheet from './BottomSheet';
@@ -13,6 +13,7 @@ import { callManager } from '../webrtc/CallManager';
 import { formatListTime, formatDuration } from '../utils/format';
 import { vibrate } from '../utils/haptics';
 import { useAppConfigStore } from '../context/appConfigStore';
+import { useGroupStore } from '../context/groupStore';
 
 const idOf = (v) => String(v?._id ?? v);
 
@@ -91,11 +92,20 @@ function ChatsTab() {
   const online = useChatStore((s) => s.onlineIds);
   const typing = useChatStore((s) => s.typing);
   const me = useAuthStore((s) => s.user);
+  const groups = useGroupStore((s) => s.groups);
   const sorted = useMemo(() => [...convs].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)), [convs]);
   return (
     <>
       <OnlineStrip />
-      {!sorted.length && <Empty icon={MessageSquare} text="No chats yet. Search for someone to start a conversation." />}
+      {groups.length > 0 && <p className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-mute">Groups</p>}
+      {groups.map((group) => {
+        const last = group.lastMessage;
+        const preview = last ? (last.deletedForEveryone ? 'Message deleted' : last.text || (last.attachment ? `${last.attachment.type}: ${last.attachment.name}` : last.type) || 'Message') : (group.description || `${group.members?.length || 0} members`);
+        return <Row key={`group-${group._id}`} user={{ name: group.name, avatar: group.avatar }} to={`/group/${group._id}`}
+          right={<span className={`shrink-0 text-xs ${group.unreadCount ? 'font-semibold text-brand' : 'text-mute'}`}>{formatListTime(group.updatedAt)}</span>}
+          sub={<><span className="flex min-w-0 items-center gap-1 truncate"><UsersRound size={14} className="shrink-0" /><span className="truncate">{last?.sender?.name ? `${last.sender.name}: ` : ''}{preview}</span></span>{group.unreadCount > 0 && <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-brand px-1.5 text-xs font-bold text-bg">{group.unreadCount}</span>}</>} />;
+      })}
+      {!sorted.length && !groups.length && <Empty icon={MessageSquare} text="No chats yet. Search for someone to start a conversation." />}
       {sorted.map((c) => {
         const u = users[c.userId];
         const m = c.lastMessage;
@@ -205,7 +215,7 @@ function AlertsTab() {
         <button onClick={clearAll} className="text-danger hover:underline">Clear all</button>
       </div>
       {list.map((n) => (
-        <Row key={n._id} user={n.from} onClick={() => navigate(`/chat/${idOf(n.from)}`)}
+        <Row key={n._id} user={n.group ? { name: n.group.name, avatar: n.group.avatar } : n.from} to={n.group ? `/group/${idOf(n.group)}` : `/chat/${idOf(n.from)}`}
           right={<span className="shrink-0 text-xs text-mute">{formatListTime(n.updatedAt)}</span>}
           sub={<span className={`truncate ${n.type === 'missed_call' ? 'text-danger' : ''}`}>{n.type === 'message' ? `${n.count > 1 ? `${n.count} new messages · ` : ''}${n.body}` : n.body}</span>}>
           {!n.read && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand" />}
@@ -252,7 +262,7 @@ function MeTab() {
         {features.pwaInstall !== false && !standalone && !installed && (installEvent || ios) && <Item icon={Download} label="Install Pulse as an app" onClick={install} />}
         <Item icon={LogOut} label="Log out" danger onClick={logout} />
       </div>
-      <p className="px-5 py-6 text-center text-xs text-mute">Pulse · private 1:1 chat, audio &amp; video calls</p>
+      <p className="px-5 py-6 text-center text-xs text-mute">Pulse · private chats, groups, audio &amp; video calls</p>
       <BottomSheet open={iosHelp} onClose={() => setIosHelp(false)} title="Install on iPhone / iPad">
         <p className="flex items-start gap-3 px-4 py-3 text-[15px]"><Share size={20} className="mt-0.5 shrink-0 text-sky-400" />Tap the <b>Share</b> button in Safari, then choose <b>Add to Home Screen</b>.</p>
       </BottomSheet>
@@ -288,14 +298,19 @@ function SearchResults({ query }) {
   );
 }
 
-function NewChatSheet({ open, onClose, onSearch }) {
+function NewChatSheet({ open, onClose, onSearch, onCreateGroup }) {
   const ids = useChatStore((s) => s.contacts);
   const users = useChatStore((s) => s.usersById);
   const online = useChatStore((s) => s.onlineIds);
   const navigate = useNavigate();
   const list = ids.map((i) => users[i]).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  const groupChatEnabled = useAppConfigStore((s) => s.config.features.groupChat !== false);
   return (
     <BottomSheet open={open} onClose={onClose} title="New chat">
+      {groupChatEnabled && <button onClick={() => { onClose(); onCreateGroup?.(); }} className="press mb-2 flex w-full items-center gap-4 rounded-xl bg-brand/10 px-4 py-3 text-left text-brand">
+        <span className="grid h-11 w-11 place-items-center rounded-full bg-brand text-bg"><UsersRound size={20} /></span>
+        <span className="font-medium">New group</span>
+      </button>}
       <button onClick={() => { onClose(); onSearch(); }} className="press flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left">
         <span className="grid h-11 w-11 place-items-center rounded-full bg-brand text-bg"><Search size={20} /></span>
         <span className="font-medium">Search people</span>
@@ -312,6 +327,43 @@ function NewChatSheet({ open, onClose, onSearch }) {
   );
 }
 
+function NewGroupSheet({ open, onClose }) {
+  const ids = useChatStore((s) => s.contacts);
+  const users = useChatStore((s) => s.usersById);
+  const maxMembers = useGroupStore((s) => s.maxMembers);
+  const createGroup = useGroupStore((s) => s.createGroup);
+  const navigate = useNavigate();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [selected, setSelected] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const list = ids.map((id) => users[id]).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  useEffect(() => { if (open) { setName(''); setDescription(''); setSelected([]); } }, [open]);
+
+  const submit = async () => {
+    if (name.trim().length < 2 || !selected.length || busy) return;
+    setBusy(true);
+    try {
+      const group = await createGroup({ name: name.trim(), description: description.trim(), memberIds: selected });
+      onClose(); navigate(`/group/${group._id}`); toast.success('Group created');
+    } catch (error) { toast.error(error.response?.data?.message || 'Could not create the group'); }
+    finally { setBusy(false); }
+  };
+
+  return <BottomSheet open={open} onClose={onClose} title="Create a group">
+    <div className="space-y-3 px-4 pb-2">
+      <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="Group name" className="w-full rounded-lg bg-panel3 px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-brand" />
+      <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} rows={2} placeholder="Description (optional)" className="w-full resize-none rounded-lg bg-panel3 px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-brand" />
+      <div className="flex items-center justify-between text-xs text-mute"><span>Select contacts ({selected.length + 1}/{maxMembers} members)</span><span>At least one contact required</span></div>
+    </div>
+    <div className="max-h-[38dvh] overflow-y-auto px-4">
+      {list.map((user) => <label key={user._id} className="flex cursor-pointer items-center gap-3 border-b border-line py-2.5"><input type="checkbox" checked={selected.includes(user._id)} disabled={!selected.includes(user._id) && selected.length + 1 >= maxMembers} onChange={(event) => setSelected((current) => event.target.checked ? [...current, user._id] : current.filter((id) => id !== user._id))} className="h-4 w-4 accent-emerald-500" /><Avatar user={user} size={40} /><span className="truncate text-sm">{user.name}</span></label>)}
+      {!list.length && <p className="py-5 text-center text-sm text-mute">Add contacts before creating a group.</p>}
+    </div>
+    <div className="flex justify-end px-4 py-3"><button disabled={busy || name.trim().length < 2 || !selected.length} onClick={submit} className="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-bg disabled:opacity-50">{busy ? 'Creating…' : 'Create group'}</button></div>
+  </BottomSheet>;
+}
+
 export default function Sidebar() {
   const me = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -319,9 +371,11 @@ export default function Sidebar() {
   const { tab, setTab, searchOpen, setSearchOpen } = useUiStore();
   const [q, setQ] = useState('');
   const [newChat, setNewChat] = useState(false);
+  const [newGroup, setNewGroup] = useState(false);
   const searchRef = useRef(null);
   const unreadChats = useChatStore((s) => s.conversations.reduce((a, c) => a + (c.unreadCount ? 1 : 0), 0));
   const alerts = useChatStore((s) => s.unreadNotifications);
+  const groupChatEnabled = useAppConfigStore((s) => s.config.features.groupChat !== false);
   const badge = { chats: unreadChats, alerts };
 
   const Body = { chats: ChatsTab, contacts: ContactsTab, online: OnlineTab, calls: CallsTab, alerts: AlertsTab, me: MeTab }[tab] || ChatsTab;
@@ -336,6 +390,7 @@ export default function Sidebar() {
       <div className="hidden items-center gap-3 bg-panel2 px-3 py-2.5 md:flex">
         <button onClick={() => navigate('/profile')} className="rounded-full" aria-label="Profile"><Avatar user={me} size={40} /></button>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{me.name}</p><p className="truncate text-xs text-mute">{me.about}</p></div>
+        {groupChatEnabled && <button className="btn-icon h-9 w-9 text-mute" title="Create group" onClick={() => setNewGroup(true)}><UsersRound size={19} /></button>}
         <button className="btn-icon h-9 w-9 text-mute" title="Settings" onClick={() => navigate('/settings')}><Settings size={20} /></button>
         {['super_admin', 'admin', 'moderator', 'support', 'custom'].includes(me?.role) && <button className="btn-icon h-9 w-9 text-mute" title="Admin panel" onClick={() => navigate('/admin')}><Shield size={20} /></button>}
         <button className="btn-icon h-9 w-9 text-mute" title="Log out" onClick={logout}><LogOut size={20} /></button>
@@ -400,7 +455,8 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <NewChatSheet open={newChat} onClose={() => setNewChat(false)} onSearch={() => setSearchOpen(true)} />
+      <NewChatSheet open={newChat} onClose={() => setNewChat(false)} onSearch={() => setSearchOpen(true)} onCreateGroup={() => setNewGroup(true)} />
+      {groupChatEnabled && <NewGroupSheet open={newGroup} onClose={() => setNewGroup(false)} />}
     </aside>
   );
 }

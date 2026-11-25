@@ -4,7 +4,9 @@ const User = require('../models/User');
 const { userFromToken } = require('../middleware/auth');
 const { onlineUsers, room, emitToUser } = require('./state');
 const registerChat = require('./chat');
+const registerGroupChat = require('./groupChat');
 const registerCall = require('./call');
+const registerGroupCall = require('./groupCall');
 
 function initSockets(httpServer, corsOrigin) {
   const io = new Server(httpServer, {
@@ -30,7 +32,9 @@ function initSockets(httpServer, corsOrigin) {
 
     // Everything below up to the first await runs synchronously, so no client event or disconnect can be missed.
     registerChat(io, socket);
+    registerGroupChat(io, socket);
     registerCall(io, socket);
+    registerGroupCall(io, socket);
 
     const sockets = onlineUsers.get(userId) || new Set();
     const firstConnection = sockets.size === 0;

@@ -13,6 +13,9 @@ const calls = require('../controllers/callController');
 const links = require('../controllers/linkController');
 const push = require('../controllers/pushController');
 const admin = require('../controllers/adminController');
+const groups = require('../controllers/groupController');
+const groupAccess = require('../middleware/groupAccess');
+const { uploadGroupFile } = require('../middleware/groupUpload');
 const adminAuth = [protect, requireSuperAdminTwoFactor];
 
 // ---- Auth
@@ -43,6 +46,8 @@ router.get('/admin/content', ...adminAuth, requirePermission('content.manage'), 
 router.post('/admin/content', ...adminAuth, requirePermission('content.manage'), admin.createContent);
 router.put('/admin/content/:id', ...adminAuth, requirePermission('content.manage'), v.idParam, validate, admin.updateContent);
 router.delete('/admin/content/:id', ...adminAuth, requirePermission('content.manage'), v.idParam, validate, admin.deleteContent);
+router.get('/admin/group-reports', ...adminAuth, requirePermission('reports.view'), groups.listAdminReports);
+router.put('/admin/group-reports/:reportId', ...adminAuth, requirePermission('reports.view'), groups.reviewAdminReport);
 router.get('/admin/security/2fa', protect, requirePermission('settings.view'), admin.twoFactorStatus);
 router.post('/admin/security/2fa/setup', protect, requirePermission('settings.manage'), admin.setupTwoFactor);
 router.post('/admin/security/2fa/enable', authLimiter, protect, requirePermission('settings.manage'), admin.enableTwoFactor);
@@ -88,6 +93,31 @@ router.get('/calls/history', protect, calls.history);
 router.delete('/calls/history', protect, calls.clearHistory);
 router.get('/calls/incoming/:id', protect, v.idParam, validate, calls.incoming);
 router.get('/calls/ice-servers', protect, calls.iceServers);
+
+// ---- Groups
+router.get('/groups', protect, groups.list);
+router.post('/groups', protect, groups.create);
+router.post('/groups/join/:code', protect, groups.joinInvite);
+router.get('/groups/:groupId', protect, groups.details);
+router.patch('/groups/:groupId', protect, groups.update);
+router.post('/groups/:groupId/avatar', protect, groupAccess, uploadAvatar, groups.uploadAvatar);
+router.post('/groups/:groupId/members', protect, groups.addMembers);
+router.delete('/groups/:groupId/members/:userId', protect, groups.removeMember);
+router.patch('/groups/:groupId/members/:userId/role', protect, groups.setMemberRole);
+router.post('/groups/:groupId/leave', protect, groups.leave);
+router.put('/groups/:groupId/mute', protect, groups.mute);
+router.post('/groups/:groupId/invite', protect, groups.createInvite);
+router.post('/groups/:groupId/requests/:requestId', protect, groups.reviewJoinRequest);
+router.get('/groups/:groupId/messages', protect, groups.messages);
+router.post('/groups/:groupId/messages/upload', protect, groupAccess, uploadGroupFile, groups.uploadMessage);
+router.get('/groups/:groupId/messages/:messageId', protect, groups.getMessage);
+router.get('/groups/:groupId/files/:fileId', protect, groups.downloadFile);
+router.post('/groups/:groupId/read', protect, groups.markRead);
+router.put('/groups/:groupId/messages/:messageId/reaction', protect, groups.toggleReaction);
+router.patch('/groups/:groupId/messages/:messageId', protect, groups.editMessage);
+router.delete('/groups/:groupId/messages/:messageId', protect, groups.deleteMessage);
+router.post('/groups/:groupId/reports', protect, groups.report);
+router.get('/groups/:groupId/activity', protect, groups.activity);
 
 // ---- Link previews
 router.get('/links/preview', protect, previewLimiter, v.previewUrl, validate, links.preview);

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../context/authStore';
 import { useChatStore } from '../context/chatStore';
+import { useGroupStore } from '../context/groupStore';
 import { connectSocket, disconnectSocket } from '../socket/socket';
 import { bindSocket } from '../socket/handlers';
 import { ensureNotificationPermission } from '../utils/notify';
@@ -21,6 +22,7 @@ export default function useSocket() {
     return () => {
       disconnectSocket();
       useChatStore.getState().reset();
+      useGroupStore.getState().reset();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, userId]);

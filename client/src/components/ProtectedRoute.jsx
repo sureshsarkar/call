@@ -13,7 +13,7 @@ export function ProtectedRoute({ children }) {
   const { user, ready } = useAuthStore();
   const loc = useLocation();
   if (!ready) return <Splash />;
-  return user ? children : <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+  return user ? children : <Navigate to="/login" replace state={{ from: `${loc.pathname}${loc.search}` }} />;
 }
 
 export function GuestRoute({ children }) {

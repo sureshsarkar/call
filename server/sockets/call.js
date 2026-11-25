@@ -10,8 +10,8 @@ const RING_TIMEOUT_MS = 45_000;
 const GRACE_MS = 60_000; // a dropped socket / network switch may take a while on slow links: keep the call alive
 const MAX_QUEUED = 80;
 
-const calls = new Map(); // callId -> call
-const userCalls = new Map(); // userId -> callId
+const calls = new Map(); // callId -> one-to-one call
+const userCalls = require('./activeCalls'); // userId -> callId (shared with group calls)
 const isId = (v) => mongoose.isValidObjectId(v);
 
 const otherParty = (call, me) => (String(call.caller) === String(me) ? call.callee : call.caller);

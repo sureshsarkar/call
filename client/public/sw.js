@@ -48,7 +48,7 @@ self.addEventListener('push', (event) => {
     if (data.kind === 'message' && data.messageId && data.ackUrl) {
       try {
         const sub = await self.registration.pushManager.getSubscription();
-        if (sub) await fetch(data.ackUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint, messageId: data.messageId }) });
+        if (sub) await fetch(data.ackUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint, messageId: data.messageId, groupId: data.groupId }) });
       } catch { /* the next foreground socket/history sync can confirm delivery */ }
     }
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
