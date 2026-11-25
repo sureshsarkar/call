@@ -136,14 +136,14 @@ function ActiveCall() {
   useWakeLock(true); // keep the screen on during a call
   const isVideo = s.type === 'video';
   const shareSupported = canShareScreen();
-  const shareReady = shareSupported && ['connecting', 'connected', 'reconnecting'].includes(s.status);
+  const shareCallReady = ['connecting', 'connected', 'reconnecting'].includes(s.status);
   const shareLabel = s.sharing
     ? 'Stop share'
     : !window.isSecureContext
       ? 'Screen sharing requires HTTPS'
       : !shareSupported
-        ? 'Screen sharing is unavailable in this browser'
-        : !['connecting', 'connected', 'reconnecting'].includes(s.status)
+        ? (/Android|iPhone|iPad|Mobi/i.test(navigator.userAgent) ? 'This mobile browser does not support screen capture' : 'Screen sharing is unavailable in this browser')
+        : !shareCallReady
           ? 'Share screen when the call is active'
           : 'Share screen';
   const canFlip = isVideo && !s.noCamera && (s.devices.cams.length > 1 || /Android|iPhone|iPad|Mobi/i.test(navigator.userAgent));
@@ -329,7 +329,7 @@ function ActiveCall() {
         <CtrlBtn onClick={() => { vibrate(8); callManager.toggleMute(); }} active={s.muted} label={s.muted ? 'Unmute' : 'Mute'}>{s.muted ? <MicOff size={22} /> : <Mic size={22} />}</CtrlBtn>
         {isVideo && <CtrlBtn onClick={() => callManager.toggleCamera()} active={s.cameraOff} disabled={s.noCamera} label={s.cameraOff ? 'Camera on' : 'Camera off'}>{s.cameraOff || s.noCamera ? <VideoOff size={22} /> : <Video size={22} />}</CtrlBtn>}
         {canFlip && <CtrlBtn onClick={flipCamera} label="Flip"><SwitchCamera size={22} /></CtrlBtn>}
-        {isVideo && <CtrlBtn onClick={() => callManager.toggleScreenShare()} active={s.sharing} disabled={!s.sharing && !shareReady} label={shareLabel}>{s.sharing ? <MonitorOff size={22} /> : <MonitorUp size={22} />}</CtrlBtn>}
+        {isVideo && <CtrlBtn onClick={() => callManager.toggleScreenShare()} active={s.sharing} disabled={!s.sharing && !shareCallReady} label={shareLabel}>{s.sharing ? <MonitorOff size={22} /> : <MonitorUp size={22} />}</CtrlBtn>}
         <CtrlBtn onClick={() => setPanel((v) => !v)} active={panel} label="Devices"><Settings2 size={22} /></CtrlBtn>
         <CtrlBtn onClick={() => { vibrate(20); callManager.end(); }} danger label={s.status === 'outgoing' ? 'Cancel' : 'End'}><PhoneOff size={24} /></CtrlBtn>
       </div>

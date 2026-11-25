@@ -522,24 +522,32 @@ class CallManager {
   async startScreenShare() {
     if (get().type !== 'video') return toast.error('Screen sharing is available in video calls');
     if (get().sharing) return undefined;
-    if (!canShareScreen()) return toast.error('Screen sharing is not supported on this device or browser');
+    if (!window.isSecureContext) return toast.error('Screen sharing requires a secure HTTPS connection.');
+    if (!canShareScreen()) return toast.error('This browser does not provide screen capture. Try an updated supported browser; mobile screen sharing depends on OS/browser support.');
+    if (!this.pc || !['connecting', 'connected', 'reconnecting'].includes(get().status)) return toast.error('Start or answer the video call before sharing your screen.');
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 15, max: 30 }, cursor: 'always' },
+        // Keep constraints portable: cursor capture is desktop-only and can reject on mobile browsers.
+        video: { frameRate: { ideal: 15, max: 30 } },
         audio: false,
       });
     } catch (err) {
       return toast.error(screenErrorMessage(err));
     }
     const track = stream.getVideoTracks()[0];
+    if (!track) { stopStream(stream); return toast.error('The browser did not return a screen video track.'); }
     track.contentHint = 'detail'; // favor sharpness over frame rate for text
-    track.onended = () => this.stopScreenShare(); // user clicked the browser's "Stop sharing"
+    try {
+      if (this.videoSender) await this.videoSender.replaceTrack(track);
+      else this.videoSender = this.pc.addTrack(track, stream); // camera-less video call: renegotiates
+    } catch (err) {
+      stopStream(stream);
+      return toast.error(`Could not send your screen to the other participant: ${err.message || 'WebRTC track update failed'}`);
+    }
+    track.onended = () => this.stopScreenShare(); // user stopped capture from the browser / OS UI
     this.screenStream = stream;
     this.screenTrack = track;
-
-    if (this.videoSender) await this.videoSender.replaceTrack(track);
-    else this.videoSender = this.pc.addTrack(track, stream); // audio-only fallback: renegotiates
     set({ sharing: true, localStream: new MediaStream([track]) });
     getSocket()?.emit('start_screen_share', { callId: get().callId });
     return undefined;
