@@ -8,10 +8,15 @@ const { cleanLabel } = require('../utils/text');
 const { signToken } = require('../middleware/auth');
 const { sendMail } = require('../services/mail');
 const { normalizeUsername, normalizePhone } = require('../utils/identity');
+const LoginEvent = require('../models/LoginEvent');
+const { getRuntimeConfig } = require('../services/runtimeConfig');
+const { decryptSecret, verifyTotp } = require('../utils/totp');
 
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
 exports.register = asyncHandler(async (req, res) => {
+  const features = getRuntimeConfig().features;
+  if (features.registration === false) throw new ApiError(403, 'New registrations are temporarily disabled');
   const { name, email, password } = req.body;
   const username = normalizeUsername(req.body.username);
   const phone = normalizePhone(req.body.phone);
@@ -19,6 +24,7 @@ exports.register = asyncHandler(async (req, res) => {
   if (await User.exists({ username })) throw new ApiError(409, 'That username is already taken');
   if (phone && await User.exists({ phone })) throw new ApiError(409, 'An account with this mobile number already exists');
   const user = await User.create({ name: cleanLabel(name, 50), email, username, ...(phone ? { phone } : {}), password });
+  if (features.userVerification === true) return res.status(201).json({ requiresVerification: true });
   res.status(201).json({ token: signToken(user), user: user.toSelf() });
 });
 
@@ -35,8 +41,27 @@ exports.login = asyncHandler(async (req, res) => {
     const phone = normalizePhone(identifier);
     accountQuery = phone ? { phone } : { username: normalizeUsername(identifier) };
   }
-  const user = await User.findOne(accountQuery).select('+password +tokenVersion');
-  if (!user || !(await user.comparePassword(password))) throw new ApiError(401, 'Invalid username, email, mobile number or password');
+  const user = await User.findOne(accountQuery).select('+password +tokenVersion +twoFactorSecretEncrypted');
+  if (!user || !(await user.comparePassword(password))) {
+    if (user) await LoginEvent.create({ user: user._id, ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].slice(0, 64), userAgent: String(req.headers['user-agent'] || '').slice(0, 300), success: false });
+    throw new ApiError(401, 'Invalid username, email, mobile number or password');
+  }
+  if (user.accountStatus === 'blocked' || (user.accountStatus === 'suspended' && (!user.suspendedUntil || user.suspendedUntil > new Date()))) {
+    await LoginEvent.create({ user: user._id, ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].slice(0, 64), userAgent: String(req.headers['user-agent'] || '').slice(0, 300), success: false });
+    throw new ApiError(403, 'This account is currently unavailable. Contact support.');
+  }
+  if (getRuntimeConfig().features.userVerification && user.role === 'user' && !user.isVerified) throw new ApiError(403, 'Your account is waiting for administrator verification.');
+  if (user.role === 'super_admin' && user.twoFactorEnabled) {
+    if (!req.body.otp) return res.json({ requiresTwoFactor: true });
+    let valid = false;
+    try { valid = verifyTotp(decryptSecret(user.twoFactorSecretEncrypted), req.body.otp); } catch { valid = false; }
+    if (!valid) {
+      await LoginEvent.create({ user: user._id, ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].slice(0, 64), userAgent: String(req.headers['user-agent'] || '').slice(0, 300), success: false });
+      throw new ApiError(401, 'Invalid authenticator code');
+    }
+  }
+  if (user.accountStatus === 'suspended' && user.suspendedUntil <= new Date()) { user.accountStatus = 'active'; user.suspendedUntil = null; await user.save(); }
+  await LoginEvent.create({ user: user._id, ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].slice(0, 64), userAgent: String(req.headers['user-agent'] || '').slice(0, 300) });
   res.json({ token: signToken(user), user: user.toSelf() });
 });
 
@@ -81,5 +106,6 @@ exports.resetPassword = asyncHandler(async (req, res) => {
   user.resetPasswordExpires = undefined;
   user.tokenVersion = (user.tokenVersion || 0) + 1; // invalidates every existing session
   await user.save();
+  if (getRuntimeConfig().features.userVerification && user.role === 'user' && !user.isVerified) return res.json({ requiresVerification: true });
   res.json({ token: signToken(user), user: user.toSelf() });
 });

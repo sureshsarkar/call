@@ -4,6 +4,7 @@ const CallHistory = require('../models/CallHistory');
 const Notification = require('../models/Notification');
 const { emitToUser, isOnline, onlineUsers } = require('./state');
 const { sendPush } = require('../services/push');
+const { getRuntimeConfig } = require('../services/runtimeConfig');
 
 const RING_TIMEOUT_MS = 45_000;
 const GRACE_MS = 60_000; // a dropped socket / network switch may take a while on slow links: keep the call alive
@@ -22,6 +23,7 @@ async function finalize(io, call, status, reason, { notify = true } = {}) {
   userCalls.delete(String(call.caller));
   userCalls.delete(String(call.callee));
   clearTimeout(call.ringTimer);
+  clearTimeout(call.maxDurationTimer);
   Object.values(call.graceTimers).forEach(clearTimeout);
 
   const endedAt = new Date();
@@ -62,6 +64,8 @@ module.exports = function registerCall(io, socket) {
     try {
       const { to, type } = data || {};
       if (!isId(to) || !['audio', 'video'].includes(type)) return reply({ ok: false, error: 'Invalid call request' });
+      const flags = getRuntimeConfig().features;
+      if (flags[`${type}Calls`] === false) return reply({ ok: false, error: `${type === 'audio' ? 'Audio' : 'Video'} calls are temporarily disabled` });
       if (String(to) === me) return reply({ ok: false, error: 'You cannot call yourself' });
       if (userCalls.has(me)) return reply({ ok: false, error: 'You are already in a call' });
 
@@ -86,7 +90,7 @@ module.exports = function registerCall(io, socket) {
       const history = await CallHistory.create({ ...base, status: 'ringing' });
       const call = {
         id: String(history._id), caller: me, callee: String(to), type, state: 'ringing',
-        historyId: history._id, answeredAt: null, ringTimer: null, graceTimers: {}, pending: {},
+        historyId: history._id, answeredAt: null, ringTimer: null, maxDurationTimer: null, graceTimers: {}, pending: {},
       };
       calls.set(call.id, call);
       userCalls.set(me, call.id);
@@ -114,6 +118,8 @@ module.exports = function registerCall(io, socket) {
     call.state = 'active';
     call.answeredAt = new Date();
     await CallHistory.updateOne({ _id: call.historyId }, { status: 'answered', answeredAt: call.answeredAt }).catch(() => {});
+    const durationLimit = getRuntimeConfig().callDurationLimitMinutes;
+    if (durationLimit > 0) call.maxDurationTimer = setTimeout(() => endAndNotify(io, call, 'completed', 'time_limit'), durationLimit * 60_000);
     socket.to(`user:${me}`).emit('call_handled', { callId }); // dismiss ringing on my other tabs
     emitToUser(io, call.caller, 'accept_call', { callId });
     reply({ ok: true });
@@ -148,6 +154,7 @@ module.exports = function registerCall(io, socket) {
   // ---- WebRTC signaling relay (server never touches media)
   const relay = (event, { requireActive = true } = {}) =>
     socket.on(event, (data = {}) => {
+      if (event === 'start_screen_share' && getRuntimeConfig().features.screenSharing === false) return;
       const call = calls.get(data.callId);
       if (!involved(call, me)) return;
       if (requireActive && call.state !== 'active') return;

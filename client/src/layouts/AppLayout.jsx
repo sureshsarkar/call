@@ -5,6 +5,8 @@ import CallOverlay from '../components/CallOverlay';
 import useSocket from '../hooks/useSocket';
 import useViewportHeight from '../hooks/useViewportHeight';
 import { useChatStore } from '../context/chatStore';
+import { useAuthStore } from '../context/authStore';
+import { useAppConfigStore } from '../context/appConfigStore';
 
 export default function AppLayout() {
   useSocket();
@@ -12,6 +14,9 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const atRoot = pathname === '/';
+  const appName = useAppConfigStore((s) => s.config.appName);
+  const maintenanceMode = useAppConfigStore((s) => s.config.maintenanceMode);
+  const role = useAuthStore((s) => s.user?.role);
 
   useEffect(() => {
     useChatStore.getState().loadConversations();
@@ -26,7 +31,7 @@ export default function AppLayout() {
 
   // Dynamic title with unread count
   const unread = useChatStore((s) => s.conversations.reduce((a, c) => a + c.unreadCount, 0));
-  useEffect(() => { document.title = unread ? `(${unread}) Pulse` : 'Pulse – Chat, Audio & Video Calls'; }, [unread]);
+  useEffect(() => { document.title = unread ? `(${unread}) ${appName}` : `${appName} – Chat, Audio & Video Calls`; }, [unread, appName]);
 
   // iOS-style swipe from the left edge to go back (phones only)
   const touch = useRef(null);
@@ -45,6 +50,7 @@ export default function AppLayout() {
   return (
     <div className="mx-auto flex h-dvh-safe max-w-[1700px] overflow-hidden bg-bg pl-safe pr-safe 2xl:border-x 2xl:border-line"
       onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      {maintenanceMode && role !== 'super_admin' && <div className="fixed inset-x-0 top-0 z-[70] bg-amber-400 px-3 py-2 text-center text-sm font-medium text-black">{appName} is in maintenance mode. Some features may be unavailable.</div>}
       <div className={`${atRoot ? 'flex' : 'hidden'} h-full w-full shrink-0 border-r border-line md:flex md:w-[360px] lg:w-[400px]`}>
         <Sidebar />
       </div>

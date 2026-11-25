@@ -6,10 +6,13 @@ const ApiError = require('../utils/ApiError');
 const { cleanText, extractUrls } = require('../utils/text');
 const { getLinkPreview } = require('./linkPreview');
 const { cutoff } = require('../utils/retention');
+const { getRuntimeConfig } = require('./runtimeConfig');
 
 /** Persists a message, updates the conversation and the receiver's notification. */
 async function createMessage({ senderId, receiverId, text, receiverOnline, replyToMessageId }) {
-  const body = cleanText(text);
+  const settings = getRuntimeConfig();
+  if (settings.features.chat === false) throw new ApiError(503, 'Chat is temporarily disabled');
+  const body = cleanText(text, settings.maxMessageLength || 4000);
   if (!body) throw new ApiError(400, 'Message cannot be empty');
   if (String(senderId) === String(receiverId)) throw new ApiError(400, 'You cannot message yourself');
 

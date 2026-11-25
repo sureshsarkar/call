@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MessageSquare, Users, Radio, Phone, Bell, Search, LogOut, Settings, X, Video, PhoneIncoming, PhoneOutgoing,
-  PhoneMissed, UserPlus, UserMinus, Check, CheckCheck, User, MessageSquarePlus, Download, Pencil, ChevronRight, Share, KeyRound,
+  PhoneMissed, UserPlus, UserMinus, Check, CheckCheck, User, MessageSquarePlus, Download, Pencil, ChevronRight, Share, KeyRound, Shield,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import BottomSheet from './BottomSheet';
@@ -12,6 +12,7 @@ import { useUiStore } from '../context/uiStore';
 import { callManager } from '../webrtc/CallManager';
 import { formatListTime, formatDuration } from '../utils/format';
 import { vibrate } from '../utils/haptics';
+import { useAppConfigStore } from '../context/appConfigStore';
 
 const idOf = (v) => String(v?._id ?? v);
 
@@ -124,10 +125,11 @@ function ChatsTab() {
 }
 
 function CallBtns({ user }) {
+  const features = useAppConfigStore((s) => s.config.features);
   return (
     <span className="flex shrink-0 gap-0.5">
-      <button className="btn-icon h-10 w-10 text-brand md:h-8 md:w-8 md:text-mute" title="Audio call" onClick={(e) => { e.preventDefault(); e.stopPropagation(); vibrate(8); callManager.start(user, 'audio'); }}><Phone size={19} /></button>
-      <button className="btn-icon h-10 w-10 text-brand md:h-8 md:w-8 md:text-mute" title="Video call" onClick={(e) => { e.preventDefault(); e.stopPropagation(); vibrate(8); callManager.start(user, 'video'); }}><Video size={20} /></button>
+      <button disabled={features.audioCalls === false} className="btn-icon h-10 w-10 text-brand disabled:opacity-35 md:h-8 md:w-8 md:text-mute" title={features.audioCalls === false ? 'Audio calls are disabled' : 'Audio call'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); vibrate(8); callManager.start(user, 'audio'); }}><Phone size={19} /></button>
+      <button disabled={features.videoCalls === false} className="btn-icon h-10 w-10 text-brand disabled:opacity-35 md:h-8 md:w-8 md:text-mute" title={features.videoCalls === false ? 'Video calls are disabled' : 'Video call'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); vibrate(8); callManager.start(user, 'video'); }}><Video size={20} /></button>
     </span>
   );
 }
@@ -219,6 +221,7 @@ function MeTab() {
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
   const { installEvent, setInstallEvent, installed } = useUiStore();
+  const features = useAppConfigStore((s) => s.config.features);
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone;
   const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
   const [iosHelp, setIosHelp] = useState(false);
@@ -245,7 +248,8 @@ function MeTab() {
         <Item icon={Pencil} label="Edit profile" onClick={() => navigate('/profile')} />
         <Item icon={KeyRound} label="Change password" onClick={() => navigate('/profile#change-password')} />
         <Item icon={Settings} label="Calls, audio & notifications" onClick={() => navigate('/settings')} />
-        {!standalone && !installed && (installEvent || ios) && <Item icon={Download} label="Install Pulse as an app" onClick={install} />}
+        {['super_admin', 'admin', 'moderator', 'support', 'custom'].includes(me?.role) && <Item icon={Shield} label="Admin panel" onClick={() => navigate('/admin')} />}
+        {features.pwaInstall !== false && !standalone && !installed && (installEvent || ios) && <Item icon={Download} label="Install Pulse as an app" onClick={install} />}
         <Item icon={LogOut} label="Log out" danger onClick={logout} />
       </div>
       <p className="px-5 py-6 text-center text-xs text-mute">Pulse · private 1:1 chat, audio &amp; video calls</p>
@@ -333,6 +337,7 @@ export default function Sidebar() {
         <button onClick={() => navigate('/profile')} className="rounded-full" aria-label="Profile"><Avatar user={me} size={40} /></button>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{me.name}</p><p className="truncate text-xs text-mute">{me.about}</p></div>
         <button className="btn-icon h-9 w-9 text-mute" title="Settings" onClick={() => navigate('/settings')}><Settings size={20} /></button>
+        {['super_admin', 'admin', 'moderator', 'support', 'custom'].includes(me?.role) && <button className="btn-icon h-9 w-9 text-mute" title="Admin panel" onClick={() => navigate('/admin')}><Shield size={20} /></button>}
         <button className="btn-icon h-9 w-9 text-mute" title="Log out" onClick={logout}><LogOut size={20} /></button>
       </div>
 

@@ -3,8 +3,10 @@ import { useChatStore } from '../context/chatStore';
 import { useAuthStore } from '../context/authStore';
 import { useSettingsStore } from '../context/settingsStore';
 import { callManager } from '../webrtc/CallManager';
+import { useCallStore } from '../context/callStore';
 import { playMessage } from '../utils/sounds';
 import { systemNotify } from '../utils/notify';
+import { useAppConfigStore } from '../context/appConfigStore';
 
 /** Wires every Socket.IO event to the stores / call manager. Call once per socket instance. */
 export function bindSocket(socket, navigate) {
@@ -17,6 +19,10 @@ export function bindSocket(socket, navigate) {
     chat().loadNotifications();
     const active = chat().activeUserId;
     if (active) chat().loadHistory(active);
+  });
+  socket.on('admin_config_updated', async () => {
+    const config = await useAppConfigStore.getState().load();
+    if (config?.features?.screenSharing === false && useCallStore.getState().sharing) await callManager.stopScreenShare();
   });
 
   socket.on('online_users', ({ userIds }) => chat().setOnlineList(userIds));

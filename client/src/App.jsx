@@ -7,6 +7,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import AdminPanel from './pages/AdminPanel';
+import ContentPage from './pages/ContentPage';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import EmptyChat from './pages/EmptyChat';
@@ -17,19 +19,22 @@ import { callApi } from './services/api';
 import { useCallStore } from './context/callStore';
 import { callManager } from './webrtc/CallManager';
 import { useSettingsStore } from './context/settingsStore';
+import { useAppConfigStore } from './context/appConfigStore';
 import { enablePush } from './utils/push';
 
 export default function App() {
+  const token = useAuthStore((s) => s.token);
+  const desktopNotifications = useSettingsStore((s) => s.desktopNotifications);
+  const pushEnabled = useAppConfigStore((s) => s.config.features.pushNotifications);
   useEffect(() => {
     setUnauthorizedHandler(() => useAuthStore.getState().expire());
     useAuthStore.getState().init();
+    useAppConfigStore.getState().load();
   }, []);
 
   useEffect(() => {
-    const token = useAuthStore.getState().token;
-    const enabled = useSettingsStore.getState().desktopNotifications;
-    if (token && enabled && 'serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') void enablePush().catch(() => {});
-  }, []);
+    if (token && desktopNotifications && pushEnabled && 'serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') void enablePush().catch(() => {});
+  }, [token, desktopNotifications, pushEnabled]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -63,9 +68,11 @@ export default function App() {
         <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
         <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        <Route path="/content/:slug" element={<ContentPage />} />
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route index element={<EmptyChat />} />
           <Route path="chat/:userId" element={<ChatWindow />} />
+          <Route path="admin" element={<AdminPanel />} />
           <Route path="profile" element={<Profile />} />
           <Route path="settings" element={<Settings />} />
         </Route>

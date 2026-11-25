@@ -14,6 +14,13 @@ const userSchema = new mongoose.Schema(
     },
     username: { type: String, lowercase: true, trim: true, minlength: 3, maxlength: 30 },
     phone: { type: String, trim: true },
+    role: { type: String, enum: ['super_admin', 'admin', 'moderator', 'support', 'custom', 'user'], default: 'user', index: true },
+    customRole: { type: mongoose.Schema.Types.ObjectId, ref: 'AdminRole', default: null },
+    accountStatus: { type: String, enum: ['active', 'suspended', 'blocked'], default: 'active', index: true },
+    suspendedUntil: { type: Date, default: null },
+    isVerified: { type: Boolean, default: false },
+    twoFactorEnabled: { type: Boolean, default: false },
+    twoFactorSecretEncrypted: { type: String, select: false },
     password: { type: String, required: true, minlength: 6, select: false },
     avatar: { type: String, default: '' },
     about: { type: String, maxlength: 140, default: 'Hey there! I am using Pulse.' },
@@ -56,7 +63,7 @@ userSchema.methods.toPublic = function toPublic() {
 
 /** Fields for the account owner. */
 userSchema.methods.toSelf = function toSelf() {
-  return { ...this.toPublic(), email: this.email, phone: this.phone, contacts: this.contacts, createdAt: this.createdAt };
+    return { ...this.toPublic(), email: this.email, phone: this.phone, role: this.role, accountStatus: this.accountStatus, isVerified: this.isVerified, twoFactorEnabled: this.twoFactorEnabled, contacts: this.contacts, createdAt: this.createdAt };
 };
 
 module.exports = mongoose.model('User', userSchema);

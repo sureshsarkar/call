@@ -6,7 +6,7 @@ import { vibrate } from '../utils/haptics';
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const isPhone = () => window.matchMedia('(max-width: 767px)').matches;
 
-export default function MessageInput({ userId, onSend, reply, onCancelReply }) {
+export default function MessageInput({ userId, onSend, reply, onCancelReply, disabled = false, maxMessageLength = 4000 }) {
   const [text, setText] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const ref = useRef(null);
@@ -95,12 +95,14 @@ export default function MessageInput({ userId, onSend, reply, onCancelReply }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); submit(); } }}
           onFocus={() => setShowEmoji(false)}
           placeholder="Message"
-          maxLength={4000}
+          maxLength={maxMessageLength}
           enterKeyHint="send"
           autoComplete="off"
-          className="max-h-36 min-h-[44px] flex-1 resize-none rounded-3xl bg-panel3 px-4 py-2.5 text-[16px] text-ink outline-none placeholder:text-mute md:rounded-lg md:text-[15px]"
+          disabled={disabled}
+          placeholder={disabled ? 'Chat is temporarily disabled' : 'Message'}
+          className="max-h-36 min-h-[44px] flex-1 resize-none rounded-3xl bg-panel3 px-4 py-2.5 text-[16px] text-ink outline-none placeholder:text-mute disabled:opacity-50 md:rounded-lg md:text-[15px]"
         />
-        <button onClick={submit} disabled={!text.trim()} aria-label="Send message"
+        <button onClick={submit} disabled={disabled || !text.trim()} aria-label="Send message"
           className="press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand text-bg transition disabled:opacity-40">
           <Send size={20} />
         </button>

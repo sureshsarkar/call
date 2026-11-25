@@ -7,7 +7,7 @@ exports.notFound = (req, _res, next) => {
 };
 
 // eslint-disable-next-line no-unused-vars
-exports.errorHandler = (err, _req, res, _next) => {
+exports.errorHandler = (err, req, res, _next) => {
   let status = err.status || 500;
   let message = err.message || 'Server error';
 
@@ -27,6 +27,11 @@ exports.errorHandler = (err, _req, res, _next) => {
 
   if (status >= 500) {
     console.error('[error]', err);
+    try {
+      if (require('mongoose').connection.readyState === 1) {
+        void require('../models/SystemEvent').create({ status, method: req.method, path: req.path, message: String(err.message || 'Server error').slice(0, 300), user: req.user?._id || null }).catch(() => {});
+      }
+    } catch { /* error recording must never change the response */ }
     if (config.isProd) message = 'Internal server error';
   }
   res.status(status).json({ message, ...(err.details ? { errors: err.details } : {}) });

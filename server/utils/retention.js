@@ -1,7 +1,7 @@
-const config = require('../config/env');
+const { getRuntimeConfig } = require('../services/runtimeConfig');
 
 /** Seconds a message lives (0 = forever). */
-const ttlSeconds = () => Math.round(config.messageTtlHours * 3600);
+const ttlSeconds = () => Math.round(getRuntimeConfig().messageTtlHours * 3600);
 
 /**
  * Oldest creation time that is still valid. Queries use it so expired data is invisible immediately,

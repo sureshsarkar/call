@@ -1,6 +1,7 @@
 const webpush = require('web-push');
 const PushSubscription = require('../models/PushSubscription');
 const config = require('../config/env');
+const { getRuntimeConfig } = require('./runtimeConfig');
 
 let configured = false;
 function ready() {
@@ -13,6 +14,7 @@ function ready() {
 }
 
 async function sendPush(userId, payload) {
+  if (getRuntimeConfig().features.pushNotifications === false) return;
   if (!ready()) return;
   const rows = await PushSubscription.find({ user: userId }).lean();
   await Promise.all(rows.map(async (row) => {

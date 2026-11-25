@@ -10,7 +10,10 @@ const config = {
   port: Number(process.env.PORT) || 5000,
   mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pulse',
   jwtSecret: process.env.JWT_SECRET || 'dev-only-insecure-secret-change-me',
+  twoFactorEncryptionKey: process.env.TWO_FACTOR_ENCRYPTION_KEY || process.env.JWT_SECRET || 'dev-only-insecure-secret-change-me',
+  twoFactorEncryptionKeyConfigured: Boolean(process.env.TWO_FACTOR_ENCRYPTION_KEY),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '30d',
+  superAdminEmail: String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase(),
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@pulse.app',
@@ -43,6 +46,9 @@ const config = {
 
 if (isProd && (config.jwtSecret.length < 32 || config.jwtSecret.startsWith('dev-only'))) {
   throw new Error('JWT_SECRET must be set to a random string of at least 32 characters in production');
+}
+if (isProd && process.env.TWO_FACTOR_ENCRYPTION_KEY && process.env.TWO_FACTOR_ENCRYPTION_KEY.length < 32) {
+  throw new Error('TWO_FACTOR_ENCRYPTION_KEY must be at least 32 characters in production');
 }
 
 module.exports = config;

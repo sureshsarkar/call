@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { getSocket, emitAck } from '../socket/socket';
 import { callApi } from '../services/api';
 import { useCallStore, resetCallStore } from '../context/callStore';
+import { useAppConfigStore } from '../context/appConfigStore';
 import { useSettingsStore } from '../context/settingsStore';
 import { startRingtone, stopRingtone, playEnd } from '../utils/sounds';
 import { systemNotify } from '../utils/notify';
@@ -520,6 +521,7 @@ class CallManager {
 
   // ------------------------------------------------------------------ screen sharing
   async startScreenShare() {
+    if (useAppConfigStore.getState().config.features.screenSharing === false) return toast.error('Screen sharing is disabled by the administrator');
     if (get().type !== 'video') return toast.error('Screen sharing is available in video calls');
     if (get().sharing) return undefined;
     if (!window.isSecureContext) return toast.error('Screen sharing requires a secure HTTPS connection.');

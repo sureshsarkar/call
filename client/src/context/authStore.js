@@ -24,8 +24,8 @@ export const useAuthStore = create((set, get) => ({
     set({ token, user });
   },
 
-  login: async (body) => get().applyAuth(await authApi.login(body)),
-  register: async (body) => get().applyAuth(await authApi.register(body)),
+  login: async (body) => { const result = await authApi.login(body); if (!result.requiresTwoFactor) get().applyAuth(result); return result; },
+  register: async (body) => { const result = await authApi.register(body); if (!result.requiresVerification) get().applyAuth(result); return result; },
 
   logout: async () => {
     try { await authApi.logout(); } catch { /* token may already be invalid */ }

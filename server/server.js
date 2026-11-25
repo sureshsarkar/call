@@ -5,11 +5,14 @@ const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
+const User = require('./models/User');
+const { loadRuntimeConfig } = require('./services/runtimeConfig');
 
 const config = require('./config/env');
 const connectDB = require('./config/db');
 const sanitize = require('./middleware/sanitize');
 const { apiLimiter } = require('./middleware/rateLimit');
+const maintenance = require('./middleware/maintenance');
 const { notFound, errorHandler } = require('./middleware/error');
 const routes = require('./routes');
 const { initSockets } = require('./sockets');
@@ -30,7 +33,7 @@ if (!config.isProd) app.use(morgan('dev'));
 
 app.use('/uploads', express.static(path.resolve(config.uploadDir), { maxAge: '7d', index: false }));
 app.get('/health', (_req, res) => res.json({ ok: true, db: mongoose.connection.readyState === 1 }));
-app.use('/api', apiLimiter, routes);
+app.use('/api', apiLimiter, maintenance, routes);
 app.use(notFound);
 app.use(errorHandler);
 
@@ -40,6 +43,19 @@ app.set('io', io);
 
 async function start() {
   await connectDB();
+  // Presence is held in Socket.IO memory; after a process restart there are no connected users.
+  await User.updateMany({ isOnline: true }, { $set: { isOnline: false, lastSeen: new Date() } });
+  // Backfill admin/security fields for accounts created before the admin panel existed.
+  await User.updateMany({ role: { $exists: false } }, { $set: { role: 'user' } });
+  await User.updateMany({ accountStatus: { $exists: false } }, { $set: { accountStatus: 'active' } });
+  await User.updateMany({ isVerified: { $exists: false } }, { $set: { isVerified: false } });
+  await User.updateMany({ twoFactorEnabled: { $exists: false } }, { $set: { twoFactorEnabled: false } });
+  await loadRuntimeConfig();
+  try { await require('./services/retention').ensureRetention(); } catch (err) { console.error('[retention] could not set up auto-delete:', err.message); }
+  if (config.superAdminEmail) {
+    const result = await User.updateOne({ email: config.superAdminEmail, role: { $ne: 'super_admin' } }, { $set: { role: 'super_admin', accountStatus: 'active', suspendedUntil: null }, $inc: { tokenVersion: 1 } });
+    if (result.modifiedCount) console.info(`[bootstrap] Super Admin role assigned to configured account (${config.superAdminEmail})`);
+  }
   server.listen(config.port, () => console.log(`[server] listening on :${config.port} (${config.isProd ? 'production' : 'development'})`));
 }
 

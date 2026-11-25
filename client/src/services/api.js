@@ -75,5 +75,40 @@ export const pushApi = {
   subscribe: (subscription) => api.post('/push/subscribe', subscription).then((r) => r.data),
   unsubscribe: (endpoint) => api.delete('/push/subscribe', { data: { endpoint } }).then((r) => r.data),
 };
+export const appConfigApi = { get: () => api.get('/app/config').then((r) => r.data) };
+export const contentApi = {
+  list: (params) => api.get('/content', { params }).then((r) => r.data.entries),
+  get: (slug) => api.get(`/content/${encodeURIComponent(slug)}`).then((r) => r.data.entry),
+};
+export const adminApi = {
+  dashboard: () => api.get('/admin/dashboard').then((r) => r.data),
+  users: (params) => api.get('/admin/users', { params }).then((r) => r.data),
+  userActivity: (id) => api.get(`/admin/users/${id}/activity`).then((r) => r.data),
+  createUser: (body) => api.post('/admin/users', body).then((r) => r.data),
+  updateUser: (id, body) => api.put(`/admin/users/${id}`, body).then((r) => r.data),
+  status: (id, body) => api.put(`/admin/users/${id}/status`, body).then((r) => r.data),
+  role: (id, body) => api.put(`/admin/users/${id}/role`, body).then((r) => r.data),
+  resetPassword: (id) => api.post(`/admin/users/${id}/reset-password`).then((r) => r.data),
+  revokeSessions: (id) => api.post(`/admin/users/${id}/revoke-sessions`).then((r) => r.data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`).then((r) => r.data),
+  config: () => api.get('/admin/config').then((r) => r.data.config),
+  saveConfig: (body) => api.put('/admin/config', body).then((r) => r.data),
+  logs: (params) => api.get('/admin/audit-logs', { params }).then((r) => r.data),
+  roles: () => api.get('/admin/roles').then((r) => r.data.roles),
+  createRole: (body) => api.post('/admin/roles', body).then((r) => r.data.role),
+  updateRole: (id, body) => api.put(`/admin/roles/${id}`, body).then((r) => r.data.role),
+  deleteRole: (id) => api.delete(`/admin/roles/${id}`).then((r) => r.data),
+  report: (params) => api.get('/admin/reports', { params }).then((r) => r.data),
+  announce: (body) => api.post('/admin/announcements', body).then((r) => r.data),
+  announcements: () => api.get('/admin/announcements').then((r) => r.data.announcements),
+  twoFactorStatus: () => api.get('/admin/security/2fa').then((r) => r.data),
+  setupTwoFactor: () => api.post('/admin/security/2fa/setup').then((r) => r.data),
+  enableTwoFactor: (code) => api.post('/admin/security/2fa/enable', { code }).then((r) => r.data),
+  disableTwoFactor: (code) => api.post('/admin/security/2fa/disable', { code }).then((r) => r.data),
+  content: () => api.get('/admin/content').then((r) => r.data.entries),
+  createContent: (body) => api.post('/admin/content', body).then((r) => r.data.entry),
+  updateContent: (id, body) => api.put(`/admin/content/${id}`, body).then((r) => r.data.entry),
+  deleteContent: (id) => api.delete(`/admin/content/${id}`).then((r) => r.data),
+};
 
 export default api;

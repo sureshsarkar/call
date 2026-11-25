@@ -8,6 +8,7 @@ import MessageInput from './MessageInput';
 import BottomSheet, { SheetAction } from './BottomSheet';
 import { useChatStore } from '../context/chatStore';
 import { useAuthStore } from '../context/authStore';
+import { useAppConfigStore } from '../context/appConfigStore';
 import { callManager } from '../webrtc/CallManager';
 import { formatDayLabel, formatLastSeen, formatTtl } from '../utils/format';
 import { vibrate } from '../utils/haptics';
@@ -18,6 +19,7 @@ export default function ChatWindow() {
   const { userId } = useParams();
   const navigate = useNavigate();
   const me = useAuthStore((s) => s.user);
+  const appConfig = useAppConfigStore((s) => s.config);
   const user = useChatStore((s) => s.usersById[userId]);
   const thread = useChatStore((s) => s.threads[userId]);
   const online = useChatStore((s) => Boolean(s.onlineIds[userId]));
@@ -138,8 +140,8 @@ export default function ChatWindow() {
         <button className="btn-icon hidden h-10 w-10 text-mute sm:inline-flex" title={isContact ? 'Remove from contacts' : 'Add to contacts'} onClick={() => (isContact ? removeContact(userId) : addContact(userId))}>
           {isContact ? <UserCheck size={20} className="text-brand" /> : <UserPlus size={20} />}
         </button>
-        <button className="btn-icon h-11 w-11 text-ink md:h-10 md:w-10 md:text-mute" title="Audio call" disabled={!user} onClick={() => { vibrate(8); callManager.start(user, 'audio'); }}><Phone size={22} /></button>
-        <button className="btn-icon h-11 w-11 text-ink md:h-10 md:w-10 md:text-mute" title="Video call" disabled={!user} onClick={() => { vibrate(8); callManager.start(user, 'video'); }}><Video size={23} /></button>
+        <button className="btn-icon h-11 w-11 text-ink disabled:opacity-35 md:h-10 md:w-10 md:text-mute" title={appConfig.features.audioCalls === false ? 'Audio calls are disabled' : 'Audio call'} disabled={!user || appConfig.features.audioCalls === false} onClick={() => { vibrate(8); callManager.start(user, 'audio'); }}><Phone size={22} /></button>
+        <button className="btn-icon h-11 w-11 text-ink disabled:opacity-35 md:h-10 md:w-10 md:text-mute" title={appConfig.features.videoCalls === false ? 'Video calls are disabled' : 'Video call'} disabled={!user || appConfig.features.videoCalls === false} onClick={() => { vibrate(8); callManager.start(user, 'video'); }}><Video size={23} /></button>
         <button className="btn-icon h-11 w-11 text-ink md:h-10 md:w-10 md:text-mute" title="More options" aria-label="More options" onClick={() => setMenu(true)}><MoreVertical size={22} /></button>
       </header>
 
@@ -174,7 +176,8 @@ export default function ChatWindow() {
         )}
       </div>
 
-      <MessageInput userId={userId} onSend={onSend} reply={reply} onCancelReply={() => setReply(null)} />
+      {!appConfig.features.chat && <p className="bg-amber-400/10 px-4 py-2 text-center text-xs text-amber-200">Chat is temporarily disabled by an administrator.</p>}
+      <MessageInput userId={userId} onSend={onSend} reply={reply} onCancelReply={() => setReply(null)} disabled={appConfig.features.chat === false} maxMessageLength={appConfig.maxMessageLength} />
 
       {/* chat options */}
       <BottomSheet open={menu} onClose={() => setMenu(false)} title={user?.name}>

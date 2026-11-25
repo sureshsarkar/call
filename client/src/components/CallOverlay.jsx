@@ -7,6 +7,7 @@ import { useCallStore } from '../context/callStore';
 import { useSettingsStore } from '../context/settingsStore';
 import { callManager } from '../webrtc/CallManager';
 import { canShareScreen, canPickSpeaker } from '../webrtc/media';
+import { useAppConfigStore } from '../context/appConfigStore';
 import { rnnoiseSupported } from '../webrtc/audioProcessing';
 import useCallTimer from '../hooks/useCallTimer';
 import useWakeLock from '../hooks/useWakeLock';
@@ -129,6 +130,7 @@ function IncomingCall() {
 
 function ActiveCall() {
   const s = useCallStore();
+  const screenSharingEnabled = useAppConfigStore((state) => state.config.features.screenSharing !== false);
   const [panel, setPanel] = useState(false);
   const [full, setFull] = useState(false);
   const rootRef = useRef(null);
@@ -139,6 +141,8 @@ function ActiveCall() {
   const shareCallReady = ['connecting', 'connected', 'reconnecting'].includes(s.status);
   const shareLabel = s.sharing
     ? 'Stop share'
+    : !screenSharingEnabled
+      ? 'Screen sharing is disabled'
     : !window.isSecureContext
       ? 'Screen sharing requires HTTPS'
       : !shareSupported
@@ -329,7 +333,7 @@ function ActiveCall() {
         <CtrlBtn onClick={() => { vibrate(8); callManager.toggleMute(); }} active={s.muted} label={s.muted ? 'Unmute' : 'Mute'}>{s.muted ? <MicOff size={22} /> : <Mic size={22} />}</CtrlBtn>
         {isVideo && <CtrlBtn onClick={() => callManager.toggleCamera()} active={s.cameraOff} disabled={s.noCamera} label={s.cameraOff ? 'Camera on' : 'Camera off'}>{s.cameraOff || s.noCamera ? <VideoOff size={22} /> : <Video size={22} />}</CtrlBtn>}
         {canFlip && <CtrlBtn onClick={flipCamera} label="Flip"><SwitchCamera size={22} /></CtrlBtn>}
-        {isVideo && <CtrlBtn onClick={() => callManager.toggleScreenShare()} active={s.sharing} disabled={!s.sharing && !shareCallReady} label={shareLabel}>{s.sharing ? <MonitorOff size={22} /> : <MonitorUp size={22} />}</CtrlBtn>}
+        {isVideo && <CtrlBtn onClick={() => callManager.toggleScreenShare()} active={s.sharing} disabled={!s.sharing && (!shareCallReady || !screenSharingEnabled)} label={shareLabel}>{s.sharing ? <MonitorOff size={22} /> : <MonitorUp size={22} />}</CtrlBtn>}
         <CtrlBtn onClick={() => setPanel((v) => !v)} active={panel} label="Devices"><Settings2 size={22} /></CtrlBtn>
         <CtrlBtn onClick={() => { vibrate(20); callManager.end(); }} danger label={s.status === 'outgoing' ? 'Cancel' : 'End'}><PhoneOff size={24} /></CtrlBtn>
       </div>

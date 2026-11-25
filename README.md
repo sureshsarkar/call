@@ -42,7 +42,9 @@ Password reset: with no SMTP configured the reset link is printed in the server 
 | `PORT`, `NODE_ENV` | `production` enables strict secret checks, trust-proxy, no request logging |
 | `MONGODB_URI` | Mongo connection string (Atlas in prod) |
 | `JWT_SECRET` | ≥ 32 random chars (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) — server refuses to boot in production with a weak one |
+| `TWO_FACTOR_ENCRYPTION_KEY` | Separate stable random secret (same generation command as `JWT_SECRET`) used to encrypt the Super Admin authenticator secret. Set this before enabling 2FA in production; never rotate it without resetting 2FA. |
 | `JWT_EXPIRES_IN` | e.g. `30d` (default: 30 days) |
+| `SUPER_ADMIN_EMAIL` | Email of an already registered account to promote to Super Admin when the backend starts. Set this only in the private backend environment (Render/Railway/VPS), never in the frontend. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push credentials. Generate with `npx web-push generate-vapid-keys`; set both keys in the backend environment to enable background push. Keep the private key secret. |
 | `CLIENT_URL` | Comma-separated allowed browser origins (CORS **and** Socket.IO), e.g. `https://pulse.vercel.app` |
 | `STUN_URLS` | default Google STUN |
@@ -81,6 +83,11 @@ All chat data is deleted from MongoDB automatically **24 hours after it is creat
 
 ## 3. Security measures
 bcrypt (cost 11) · JWT with server-side revocation (`tokenVersion` bumps on password reset/change) · Socket.IO handshake auth · `helmet` · strict CORS allow-list · rate limits (global, stricter on auth, link previews) · `express-validator` on every route · NoSQL-operator stripping · control-char/angle-bracket sanitising + React output escaping · only `http(s)` links are rendered, with `rel="noopener noreferrer nofollow"` · avatar upload: MIME allow-list + magic-byte check + random filenames + 2 MB cap · conversations are looked up by *authenticated participant pair*, so one user can never read another's messages · link-preview fetcher blocks private/loopback/link-local IPs at connect time (SSRF/DNS-rebinding safe), 512 KB / 6 s caps · call signaling only relays between the two call participants · per-socket message rate limit · coturn config denies relaying to private ranges.
+
+### Admin panel
+Register the account first, then set `SUPER_ADMIN_EMAIL` and `TWO_FACTOR_ENCRYPTION_KEY` in the backend environment and restart/redeploy the backend. Sign in with that account and open **Admin panel** from the profile/navigation. Super Admin tools remain locked until authenticator-based 2FA is enabled. The first setup shows a one-time authenticator secret; save it in an authenticator app before enabling.
+
+The existing product is a private 1:1 chat/call application. Group chat, message/file moderation, call recording, SMS setup, backup/restore, per-device session listings, editable brand/theme assets, and in-panel email/API secret management are not implemented in its current architecture; those controls are not exposed as active features. Session revocation signs a user out of all devices, and content entries currently render as plain text with SEO title/description metadata. External service secrets remain managed in the backend environment.
 
 ## 4. Deployment
 
