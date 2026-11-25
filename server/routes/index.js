@@ -47,10 +47,12 @@ router.delete('/messages/:id', protect, v.deleteMessage, validate, messages.remo
 // ---- Notifications
 router.get('/notifications', protect, notifications.list);
 router.put('/notifications/read-all', protect, notifications.markAllRead);
+router.delete('/notifications', protect, notifications.clearAll);
 router.put('/notifications/:id/read', protect, v.idParam, validate, notifications.markRead);
 
 // ---- Calls
 router.get('/calls/history', protect, calls.history);
+router.delete('/calls/history', protect, calls.clearHistory);
 router.get('/calls/incoming/:id', protect, v.idParam, validate, calls.incoming);
 router.get('/calls/ice-servers', protect, calls.iceServers);
 

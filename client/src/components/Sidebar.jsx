@@ -164,6 +164,7 @@ function OnlineTab() {
 function CallsTab() {
   const calls = useChatStore((s) => s.calls);
   const loadCalls = useChatStore((s) => s.loadCalls);
+  const clearCallHistory = useChatStore((s) => s.clearCallHistory);
   const cache = useChatStore((s) => s.cacheUsers);
   useEffect(() => {
     loadCalls();
@@ -172,7 +173,9 @@ function CallsTab() {
   }, [loadCalls]);
   useEffect(() => { cache(calls.map((c) => c.peer)); }, [calls, cache]);
   if (!calls.length) return <Empty icon={Phone} text="Your call history will appear here." />;
-  return calls.map((c) => {
+  return <>
+    <button onClick={clearCallHistory} className="w-full px-4 py-3 text-right text-sm text-brand hover:underline">Clear call history</button>
+    {calls.map((c) => {
     const missed = ['missed', 'busy'].includes(c.status) && c.direction === 'incoming';
     const Icon = missed ? PhoneMissed : c.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing;
     const label = { completed: c.duration ? formatDuration(c.duration) : 'Completed', missed: c.direction === 'incoming' ? 'Missed' : 'No answer', rejected: 'Declined', cancelled: c.direction === 'incoming' ? 'Missed' : 'Cancelled', busy: 'Busy', failed: 'Failed', answered: 'Ended' }[c.status] || c.status;
@@ -183,17 +186,22 @@ function CallsTab() {
         <CallBtns user={c.peer} />
       </Row>
     );
-  });
+    })}
+  </>;
 }
 
 function AlertsTab() {
   const list = useChatStore((s) => s.notifications);
   const markAll = useChatStore((s) => s.markAllNotificationsRead);
+  const clearAll = useChatStore((s) => s.clearNotifications);
   const navigate = useNavigate();
   if (!list.length) return <Empty icon={Bell} text="No notifications." />;
   return (
     <>
-      <button onClick={markAll} className="w-full px-4 py-3 text-right text-sm text-brand hover:underline">Mark all as read</button>
+      <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+        <button onClick={markAll} className="text-brand hover:underline">Mark all as read</button>
+        <button onClick={clearAll} className="text-danger hover:underline">Clear all</button>
+      </div>
       {list.map((n) => (
         <Row key={n._id} user={n.from} onClick={() => navigate(`/chat/${idOf(n.from)}`)}
           right={<span className="shrink-0 text-xs text-mute">{formatListTime(n.updatedAt)}</span>}

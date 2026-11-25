@@ -111,7 +111,7 @@ function MessageBubble({ message, mine, onDelete, onRetry, onLongPress, onReply,
               <span className="block truncate text-xs text-mute">{quoteLabel(quoted)}</span>
             </button>}
             {message.links?.map((l) => <LinkCard key={l.url} link={l} />)}
-            <p className={`whitespace-pre-wrap break-words text-[15px] leading-snug ${emojiOnly ? 'emoji-only' : 'pr-14'}`}>
+            <p className={`whitespace-pre-wrap break-words text-[15px] leading-snug ${emojiOnly ? 'emoji-only' : 'pr-20'}`}>
               {tokenize(message.text).map((t, i) =>
                 t.type === 'link' ? (
                   <a key={i} href={t.href} target="_blank" rel="noopener noreferrer nofollow" className="break-all text-sky-400 underline-offset-2 hover:underline">{t.value}</a>

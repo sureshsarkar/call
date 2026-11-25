@@ -14,6 +14,7 @@ const callHistorySchema = new mongoose.Schema(
     answeredAt: Date,
     endedAt: Date,
     duration: { type: Number, default: 0 }, // seconds of connected time
+    hiddenFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true }
 );

@@ -4,7 +4,7 @@ const { getIceServers, hasTurn } = require('../services/ice');
 
 exports.history = asyncHandler(async (req, res) => {
   const me = req.user._id;
-  const calls = await CallHistory.find({ $or: [{ caller: me }, { callee: me }], status: { $ne: 'ringing' } })
+  const calls = await CallHistory.find({ $or: [{ caller: me }, { callee: me }], status: { $ne: 'ringing' }, hiddenFor: { $ne: me } })
     .sort({ startedAt: -1 })
     .limit(60)
     .populate('caller callee', 'name avatar')
@@ -23,6 +23,14 @@ exports.history = asyncHandler(async (req, res) => {
       };
     }),
   });
+});
+
+exports.clearHistory = asyncHandler(async (req, res) => {
+  const result = await CallHistory.updateMany(
+    { $or: [{ caller: req.user._id }, { callee: req.user._id }], status: { $ne: 'ringing' }, hiddenFor: { $ne: req.user._id } },
+    { $addToSet: { hiddenFor: req.user._id } }
+  );
+  res.json({ cleared: result.modifiedCount });
 });
 
 exports.iceServers = asyncHandler(async (req, res) => {

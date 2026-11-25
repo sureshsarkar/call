@@ -355,6 +355,13 @@ export const useChatStore = create((set, get) => ({
     set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })), unreadNotifications: 0 }));
     try { await notificationApi.readAll(); } catch { /* ignore */ }
   },
+  clearNotifications: async () => {
+    if (!window.confirm('Clear all alerts? This only clears them from your account.')) return;
+    const previous = get().notifications;
+    set({ notifications: [], unreadNotifications: 0 });
+    try { await notificationApi.clear(); }
+    catch { set({ notifications: previous, unreadNotifications: previous.filter((n) => !n.read).length }); toast.error('Could not clear alerts'); }
+  },
   markNotificationsReadFor: (userId) =>
     set((s) => {
       const notifications = s.notifications.map((n) => (n.type === 'message' && idOf(n.from) === userId ? { ...n, read: true } : n));
@@ -362,6 +369,13 @@ export const useChatStore = create((set, get) => ({
     }),
   loadCalls: async () => {
     try { set({ calls: await callApi.history() }); } catch { /* non-critical */ }
+  },
+  clearCallHistory: async () => {
+    if (!window.confirm('Clear your call history? It will remain visible to the other participant.')) return;
+    const previous = get().calls;
+    set({ calls: [] });
+    try { await callApi.clearHistory(); }
+    catch { set({ calls: previous }); toast.error('Could not clear call history'); }
   },
 
   reset: () =>

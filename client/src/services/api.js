@@ -62,9 +62,11 @@ export const notificationApi = {
   list: () => api.get('/notifications').then((r) => r.data),
   readAll: () => api.put('/notifications/read-all').then((r) => r.data),
   read: (id) => api.put(`/notifications/${id}/read`).then((r) => r.data),
+  clear: () => api.delete('/notifications').then((r) => r.data),
 };
 export const callApi = {
   history: () => api.get('/calls/history').then((r) => r.data.calls),
+  clearHistory: () => api.delete('/calls/history').then((r) => r.data),
   iceServers: () => api.get('/calls/ice-servers').then((r) => r.data.iceServers),
   incoming: (id) => api.get(`/calls/incoming/${id}`).then((r) => r.data.incoming),
 };

@@ -20,3 +20,8 @@ exports.markAllRead = asyncHandler(async (req, res) => {
   await Notification.updateMany({ user: req.user._id, read: false }, { read: true });
   res.json({ message: 'ok' });
 });
+
+exports.clearAll = asyncHandler(async (req, res) => {
+  const result = await Notification.deleteMany({ user: req.user._id });
+  res.json({ cleared: result.deletedCount });
+});
