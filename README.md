@@ -42,7 +42,8 @@ Password reset: with no SMTP configured the reset link is printed in the server 
 | `PORT`, `NODE_ENV` | `production` enables strict secret checks, trust-proxy, no request logging |
 | `MONGODB_URI` | Mongo connection string (Atlas in prod) |
 | `JWT_SECRET` | ≥ 32 random chars (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) — server refuses to boot in production with a weak one |
-| `JWT_EXPIRES_IN` | e.g. `7d` |
+| `JWT_EXPIRES_IN` | e.g. `30d` (default: 30 days) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push credentials. Generate with `npx web-push generate-vapid-keys`; set both keys in the backend environment to enable background push. Keep the private key secret. |
 | `CLIENT_URL` | Comma-separated allowed browser origins (CORS **and** Socket.IO), e.g. `https://pulse.vercel.app` |
 | `STUN_URLS` | default Google STUN |
 | `TURN_URLS` | e.g. `turn:turn.example.com:3478,turns:turn.example.com:5349?transport=tcp` |

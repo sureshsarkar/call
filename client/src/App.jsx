@@ -13,11 +13,46 @@ import EmptyChat from './pages/EmptyChat';
 import ChatWindow from './components/ChatWindow';
 import { useAuthStore } from './context/authStore';
 import { setUnauthorizedHandler } from './services/api';
+import { callApi } from './services/api';
+import { useCallStore } from './context/callStore';
+import { callManager } from './webrtc/CallManager';
+import { useSettingsStore } from './context/settingsStore';
+import { enablePush } from './utils/push';
 
 export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => useAuthStore.getState().expire());
     useAuthStore.getState().init();
+  }, []);
+
+  useEffect(() => {
+    const token = useAuthStore.getState().token;
+    const enabled = useSettingsStore.getState().desktopNotifications;
+    if (token && enabled && 'serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') void enablePush().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const callId = url.searchParams.get('incomingCall');
+    if (!callId || !useAuthStore.getState().token) return;
+    callApi.incoming(callId).then((incoming) => {
+      useCallStore.setState({ status: 'incoming', callId: incoming.callId, type: incoming.type, peer: incoming.from, isCaller: false });
+      if (url.searchParams.get('pushAction') === 'reject') setTimeout(() => callManager.reject(), 0);
+      url.searchParams.delete('incomingCall');
+      url.searchParams.delete('pushAction');
+      window.history.replaceState({}, '', url);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.data?.type !== 'PUSH_OPEN') return;
+      const next = new URL(event.data.url, window.location.origin);
+      if (event.data.action) next.searchParams.set('pushAction', event.data.action);
+      window.location.assign(next.href);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
   }, []);
 
   return (

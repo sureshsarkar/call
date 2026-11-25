@@ -40,3 +40,38 @@ self.addEventListener('fetch', (e) => {
     );
   }
 });
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data.json(); } catch { data = { title: 'Pulse', body: event.data?.text() || 'New activity' }; }
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (windows.some((c) => c.visibilityState === 'visible')) return;
+    const call = data.kind === 'call';
+    if (!call && Number(data.unread) > 0) { try { await self.navigator.setAppBadge?.(Number(data.unread)); } catch { /* badge API is optional */ } }
+    await self.registration.showNotification(data.title || 'Pulse', {
+      body: data.body || '', icon: '/favicon.svg', badge: '/favicon.svg', tag: data.tag || 'pulse', renotify: true,
+      vibrate: call ? [500, 250, 500, 250, 700] : [150, 100, 150], requireInteraction: call,
+      actions: call ? [{ action: 'accept', title: 'Answer' }, { action: 'reject', title: 'Reject' }] : [{ action: 'open', title: 'Open chat' }],
+      data: { url: data.url || '/', kind: data.kind, callId: data.callId, type: data.type, from: data.from },
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const target = new URL(data.url || '/', self.location.origin);
+  if (event.action) target.searchParams.set('pushAction', event.action);
+  const url = target.href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const client = windows[0];
+    if (client) {
+      await client.focus();
+      client.postMessage({ type: 'PUSH_OPEN', url, callId: data.callId, action: event.action });
+    } else {
+      await self.clients.openWindow(url);
+    }
+  })());
+});

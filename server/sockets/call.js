@@ -3,6 +3,7 @@ const User = require('../models/User');
 const CallHistory = require('../models/CallHistory');
 const Notification = require('../models/Notification');
 const { emitToUser, isOnline, onlineUsers } = require('./state');
+const { sendPush } = require('../services/push');
 
 const RING_TIMEOUT_MS = 45_000;
 const GRACE_MS = 60_000; // a dropped socket / network switch may take a while on slow links: keep the call alive
@@ -96,6 +97,7 @@ module.exports = function registerCall(io, socket) {
       }, RING_TIMEOUT_MS);
 
       emitToUser(io, to, 'incoming_call', { callId: call.id, type, from: caller.toPublic() });
+      void sendPush(to, { kind: 'call', title: `Incoming ${type} call`, body: `${caller.name} is calling`, url: `/?incomingCall=${call.id}`, tag: `call-${call.id}`, callId: call.id, type, from: caller.toPublic() }).catch((err) => console.error('[push] call', err.message));
       reply({ ok: true, callId: call.id, callee: callee.toPublic() });
     } catch (err) {
       console.error('[call] incoming_call', err);
@@ -179,6 +181,13 @@ module.exports = function registerCall(io, socket) {
     if (!involved(call, me)) return reply({ ok: false });
     reply({ ok: true, state: call.state });
   });
+};
+
+module.exports.getIncomingCall = async (callId, userId) => {
+  const call = calls.get(String(callId));
+  if (!call || String(call.callee) !== String(userId) || call.state !== 'ringing') return null;
+  const caller = await User.findById(call.caller).select('name avatar');
+  return caller ? { callId: call.id, type: call.type, from: caller.toPublic() } : null;
 };
 
 // ---- presence hooks called from sockets/index.js

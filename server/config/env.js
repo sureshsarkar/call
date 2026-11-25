@@ -10,7 +10,10 @@ const config = {
   port: Number(process.env.PORT) || 5000,
   mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pulse',
   jwtSecret: process.env.JWT_SECRET || 'dev-only-insecure-secret-change-me',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '30d',
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+  vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@pulse.app',
   clientUrls: list(process.env.CLIENT_URL, ['http://localhost:5173']),
   uploadDir: process.env.UPLOAD_DIR || 'uploads',
   // Auto-delete chat data this many hours after it was created (0 disables). Fractions allowed (0.5 = 30 min).

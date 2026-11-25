@@ -66,6 +66,12 @@ export const notificationApi = {
 export const callApi = {
   history: () => api.get('/calls/history').then((r) => r.data.calls),
   iceServers: () => api.get('/calls/ice-servers').then((r) => r.data.iceServers),
+  incoming: (id) => api.get(`/calls/incoming/${id}`).then((r) => r.data.incoming),
+};
+export const pushApi = {
+  publicKey: () => api.get('/push/public-key').then((r) => r.data.publicKey),
+  subscribe: (subscription) => api.post('/push/subscribe', subscription).then((r) => r.data),
+  unsubscribe: (endpoint) => api.delete('/push/subscribe', { data: { endpoint } }).then((r) => r.data),
 };
 
 export default api;

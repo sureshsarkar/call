@@ -29,3 +29,9 @@ exports.iceServers = asyncHandler(async (req, res) => {
   const iceServers = await getIceServers(req.user._id);
   res.json({ iceServers, turnConfigured: hasTurn(iceServers) });
 });
+
+exports.incoming = asyncHandler(async (req, res) => {
+  const incoming = await require('../sockets/call').getIncomingCall(req.params.id, req.user._id);
+  if (!incoming) return res.status(404).json({ message: 'Call is no longer available' });
+  res.json({ incoming });
+});

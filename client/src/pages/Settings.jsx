@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useSettingsStore } from '../context/settingsStore';
+import { enablePush, disablePush } from '../utils/push';
 import { rnnoiseSupported } from '../webrtc/audioProcessing';
 import { listDevices, canPickSpeaker, mediaErrorMessage, audioConstraints } from '../webrtc/media';
 import { testConnection, interpret } from '../webrtc/connectionTest';
@@ -123,13 +124,13 @@ export default function Settings() {
 
         <h2 className="pt-4 text-sm font-semibold uppercase tracking-wide text-brand">Notifications</h2>
         <Toggle label="Sounds" desc="Ringtones and message tones." checked={s.sounds} onChange={(v) => s.update({ sounds: v })} />
-        <Toggle label="Desktop notifications" desc="Show system notifications for messages and calls when the tab is in the background."
+        <Toggle label="Push notifications" desc="Receive chat and incoming-call notifications while Pulse is in the background."
           checked={s.desktopNotifications && notifSupported && Notification.permission === 'granted'}
-          disabled={!notifSupported}
+          disabled={!notifSupported || !('serviceWorker' in navigator) || !('PushManager' in window)}
           onChange={async (v) => {
             s.update({ desktopNotifications: v });
-            if (v && Notification.permission === 'default') await Notification.requestPermission();
-            if (v && Notification.permission === 'denied') toast.error('Notifications are blocked in your browser settings');
+            try { if (v) await enablePush(); else await disablePush(); }
+            catch (err) { s.update({ desktopNotifications: false }); toast.error(err.message || 'Could not enable push notifications'); }
           }} />
       </div>
     </div>

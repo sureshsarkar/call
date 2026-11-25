@@ -11,8 +11,12 @@ const messages = require('../controllers/messageController');
 const notifications = require('../controllers/notificationController');
 const calls = require('../controllers/callController');
 const links = require('../controllers/linkController');
+const push = require('../controllers/pushController');
 
 // ---- Auth
+router.get('/push/public-key', push.publicKey);
+router.post('/push/subscribe', protect, push.subscribe);
+router.delete('/push/subscribe', protect, push.unsubscribe);
 router.post('/auth/register', authLimiter, v.register, validate, auth.register);
 router.post('/auth/login', authLimiter, v.login, validate, auth.login);
 router.post('/auth/forgot-password', authLimiter, v.forgot, validate, auth.forgotPassword);
@@ -46,6 +50,7 @@ router.put('/notifications/:id/read', protect, v.idParam, validate, notification
 
 // ---- Calls
 router.get('/calls/history', protect, calls.history);
+router.get('/calls/incoming/:id', protect, v.idParam, validate, calls.incoming);
 router.get('/calls/ice-servers', protect, calls.iceServers);
 
 // ---- Link previews

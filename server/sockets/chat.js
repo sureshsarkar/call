@@ -4,6 +4,7 @@ const Conversation = require('../models/Conversation');
 const Notification = require('../models/Notification');
 const { createMessage, enrichLinks, populateReplies } = require('../services/messageService');
 const { emitToUser, isOnline } = require('./state');
+const { sendPush } = require('../services/push');
 
 const isId = (v) => mongoose.isValidObjectId(v);
 
@@ -36,6 +37,7 @@ module.exports = function registerChat(io, socket) {
       emitToUser(io, data.to, 'receive_message', receiverPayload);
       emitToUser(io, me, 'message_sent', { ...senderPayload, tempId: data.tempId }); // all of my tabs
       emitToUser(io, data.to, 'notification', notification);
+      void sendPush(data.to, { kind: 'message', title: notification.from?.name || 'New message', body: message.text || 'Sent you a message', url: `/chat/${me}`, tag: `msg-${me}`, unread: notification.count }).catch((err) => console.error('[push] message', err.message));
       reply({ ok: true, message: senderPayload });
 
       // link previews are fetched after delivery so sending is never blocked
