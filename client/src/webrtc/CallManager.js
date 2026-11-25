@@ -14,9 +14,15 @@ import {
   canShareScreen, audioConstraints, videoConstraints,
 } from './media';
 import { createRnnoisePipeline } from './audioProcessing';
+import { classify, sampleFromStats, QualityController, VIDEO_PROFILES, AUDIO_PROFILE } from './networkQuality';
 
 const FALLBACK_ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
-const RECONNECT_TIMEOUT_MS = 25_000;
+// Slow-network tolerance: keep trying to recover for a long time instead of hanging up.
+const RECONNECT_TIMEOUT_MS = 90_000; // give up only after this long without media
+const CONNECT_TIMEOUT_MS = 75_000; // first connection on a very slow link can take a while
+const DISCONNECT_GRACE_MS = 4_000; // ICE 'disconnected' is often transient: let it heal before restarting
+const RESTART_EVERY_MS = 10_000; // repeated ICE restarts while the link is down
+const STATS_EVERY_MS = 2_000; // network quality sampling
 const set = (patch) => useCallStore.setState(patch);
 const get = () => useCallStore.getState();
 
@@ -26,7 +32,17 @@ class CallManager {
     if (navigator.mediaDevices?.addEventListener) {
       navigator.mediaDevices.addEventListener('devicechange', () => this.refreshDevices());
     }
+    // browser-level connectivity: never hang up because the device went offline for a moment
+    window.addEventListener('offline', () => { if (this.inCall) set({ networkOffline: true }); });
+    window.addEventListener('online', () => {
+      set({ networkOffline: false });
+      if (!this.inCall) return;
+      getSocket()?.connect(); // no-op when already connected
+      try { this.pc?.restartIce(); } catch { /* closed */ } // re-gather candidates on the new network right away
+    });
   }
+
+  get inCall() { return ['connecting', 'connected', 'reconnecting'].includes(get().status); }
 
   resetInternals() {
     this.pc = null;
@@ -48,6 +64,14 @@ class CallManager {
     this.reconnectTimer = null;
     this.ending = false;
     this.switchingCamera = false;
+    this.recoveryInterval = null;
+    this.disconnectTimer = null;
+    this.connectTimer = null;
+    this.statsTimer = null;
+    this.statTotals = null;
+    this.qualityCtl = new QualityController();
+    this.videoPausedByNetwork = false;
+    this.tuned = false;
   }
 
   get busy() { return get().status !== 'idle'; }
@@ -138,26 +162,128 @@ class CallManager {
     const stream = this.rawStream;
     this.audioSender = pc.addTrack(this.sendAudioTrack, stream);
     if (this.cameraTrack) this.videoSender = pc.addTrack(this.cameraTrack, stream);
+
+    // never sit on "Connecting…" forever
+    this.connectTimer = setTimeout(() => {
+      const s = this.pc?.iceConnectionState;
+      if (s !== 'connected' && s !== 'completed') this.end('connection_lost');
+    }, CONNECT_TIMEOUT_MS);
   }
 
   onIceState(state) {
     const { status } = get();
     if (status === 'idle') return;
     if (state === 'connected' || state === 'completed') {
-      clearTimeout(this.reconnectTimer);
-      set({ status: 'connected', connectedAt: get().connectedAt || Date.now() });
-    } else if (state === 'disconnected' || state === 'failed') {
-      if (status === 'connected' || status === 'reconnecting') set({ status: 'reconnecting' });
-      if (state === 'failed' || state === 'disconnected') {
-        try { this.pc?.restartIce(); } catch { /* closed */ }
-      }
-      if (!this.reconnectTimer) {
-        this.reconnectTimer = setTimeout(() => {
-          this.reconnectTimer = null;
-          const s = this.pc?.iceConnectionState;
-          if (s !== 'connected' && s !== 'completed') this.end('connection_lost');
-        }, RECONNECT_TIMEOUT_MS);
-      }
+      this.stopRecovery();
+      clearTimeout(this.connectTimer);
+      set({ status: 'connected', connectedAt: get().connectedAt || Date.now(), networkOffline: false });
+      if (!this.tuned) { this.tuned = true; this.tuneSenders(); }
+      this.startQualityMonitor();
+      return;
+    }
+    if (state === 'disconnected') {
+      // frequently transient on mobile networks: show it, but give it a few seconds to heal by itself
+      if (status === 'connected') set({ status: 'reconnecting' });
+      clearTimeout(this.disconnectTimer);
+      this.disconnectTimer = setTimeout(() => {
+        if (this.pc?.iceConnectionState === 'disconnected') this.startRecovery();
+      }, DISCONNECT_GRACE_MS);
+    } else if (state === 'failed') {
+      if (status === 'connected') set({ status: 'reconnecting' });
+      this.startRecovery();
+    }
+  }
+
+  /** Keep re-trying ICE every few seconds; hang up only if media never comes back within RECONNECT_TIMEOUT_MS. */
+  startRecovery() {
+    if (this.recoveryInterval) return;
+    try { this.pc?.restartIce(); } catch { /* closed */ }
+    this.recoveryInterval = setInterval(() => {
+      const s = this.pc?.iceConnectionState;
+      if (s === 'connected' || s === 'completed') { this.stopRecovery(); return; }
+      try { this.pc?.restartIce(); } catch { /* closed */ }
+    }, RESTART_EVERY_MS);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      const s = this.pc?.iceConnectionState;
+      if (s !== 'connected' && s !== 'completed') this.end('connection_lost');
+    }, RECONNECT_TIMEOUT_MS);
+  }
+
+  stopRecovery() {
+    clearInterval(this.recoveryInterval);
+    this.recoveryInterval = null;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    clearTimeout(this.disconnectTimer);
+  }
+
+  // ------------------------------------------------------------------ adaptive quality
+  async setSenderParams(sender, mutate) {
+    if (!sender) return;
+    try {
+      const p = sender.getParameters();
+      if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings.forEach(mutate);
+      await sender.setParameters(p);
+    } catch (err) {
+      console.warn('[call] setParameters failed', err.message);
+    }
+  }
+
+  /** Once, after the first negotiation: protect audio and put sane limits on video. */
+  async tuneSenders() {
+    await this.setSenderParams(this.audioSender, (e) => { e.maxBitrate = AUDIO_PROFILE.maxBitrate; e.networkPriority = 'high'; e.priority = 'high'; });
+    if (this.videoSender) await this.applyVideoProfile('good');
+  }
+
+  async applyVideoProfile(level) {
+    const prof = VIDEO_PROFILES[level];
+    await this.setSenderParams(this.videoSender, (e) => {
+      e.active = prof.active;
+      e.maxBitrate = prof.maxBitrate;
+      e.maxFramerate = prof.maxFramerate;
+      e.scaleResolutionDownBy = prof.scaleResolutionDownBy;
+    });
+  }
+
+  startQualityMonitor() {
+    if (this.statsTimer || !this.pc) return;
+    this.statTotals = null;
+    this.qualityCtl.reset();
+    this.statsTimer = setInterval(() => this.sampleQuality(), STATS_EVERY_MS);
+  }
+
+  stopQualityMonitor() {
+    clearInterval(this.statsTimer);
+    this.statsTimer = null;
+  }
+
+  async sampleQuality() {
+    const pc = this.pc;
+    if (!pc || pc.connectionState === 'closed' || get().status !== 'connected') return;
+    try {
+      const { sample, totals } = sampleFromStats(await pc.getStats(), this.statTotals);
+      this.statTotals = totals;
+      // while video is paused the bandwidth estimate stops growing, so only rtt/loss decide when to resume
+      const videoCall = get().type === 'video' && sample.hasVideo && !this.videoPausedByNetwork;
+      const changed = this.qualityCtl.step(classify({ ...sample, hasVideo: videoCall }));
+      if (get().quality !== this.qualityCtl.level) set({ quality: this.qualityCtl.level });
+      if (changed) await this.applyQuality(changed);
+    } catch (err) {
+      console.warn('[call] stats failed', err.message);
+    }
+  }
+
+  async applyQuality(level) {
+    if (get().type !== 'video' || !this.videoSender) return;
+    await this.applyVideoProfile(level);
+    const paused = !VIDEO_PROFILES[level].active;
+    if (paused !== this.videoPausedByNetwork) {
+      this.videoPausedByNetwork = paused;
+      set({ videoPaused: paused });
+      this.broadcastMediaState(); // peer shows the avatar instead of a frozen frame
+      toast(paused ? 'Weak connection — video paused so the call stays clear' : 'Connection improved — video resumed', { icon: paused ? '📶' : '✅', id: 'net-quality' });
     }
   }
 
@@ -243,7 +369,9 @@ class CallManager {
   /** Release every resource: peer connection, tracks, audio graph, timers, ringtone. */
   cleanup() {
     stopRingtone();
-    clearTimeout(this.reconnectTimer);
+    this.stopRecovery();
+    this.stopQualityMonitor();
+    clearTimeout(this.connectTimer);
     if (this.pc) {
       this.pc.onicecandidate = this.pc.ontrack = this.pc.onnegotiationneeded = this.pc.oniceconnectionstatechange = null;
       this.pc.getSenders().forEach((s) => { try { s.track && s.replaceTrack(null); } catch { /* ignore */ } });
@@ -279,7 +407,7 @@ class CallManager {
 
   broadcastMediaState() {
     const { callId, muted, cameraOff } = get();
-    getSocket()?.emit('call_media_state', { callId, audio: !muted, video: !cameraOff });
+    getSocket()?.emit('call_media_state', { callId, audio: !muted, video: !cameraOff && !this.videoPausedByNetwork });
   }
 
   /**
@@ -526,4 +654,5 @@ class CallManager {
 }
 
 export const callManager = new CallManager();
+if (import.meta.env.DEV) window.__callManager = callManager; // debugging aid in dev tools
 export default callManager;

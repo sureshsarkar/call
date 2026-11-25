@@ -13,6 +13,7 @@ export function connectSocket(token) {
     reconnection: true,
     reconnectionDelay: 500,
     reconnectionDelayMax: 4000,
+    timeout: 30000, // slow links: allow a long handshake
   });
   if (import.meta.env.DEV) window.__socket = socket; // handy for debugging in dev tools
   return socket;
@@ -27,7 +28,7 @@ export function disconnectSocket() {
 }
 
 /** Promise wrapper for acks, with a timeout so UI never hangs. */
-export function emitAck(event, payload, timeout = 10000) {
+export function emitAck(event, payload, timeout = 20000) {
   return new Promise((resolve) => {
     if (!socket?.connected) return resolve({ ok: false, error: 'Not connected to the server' });
     const timer = setTimeout(() => resolve({ ok: false, error: 'Server did not respond' }), timeout);

@@ -31,6 +31,18 @@ function Media({ stream, muted = false, audioOnly = false, className = '', conta
   return <Tag ref={ref} autoPlay playsInline muted={muted} className={`${className} ${contain ? 'object-contain' : 'object-cover'} ${mirror ? '-scale-x-100' : ''}`} />;
 }
 
+/** 4-bar connection indicator: green = good, amber = fair/poor, red = critical. */
+function SignalBars({ level }) {
+  const bars = { good: 4, fair: 3, poor: 2, critical: 1 }[level] ?? 4;
+  const color = level === 'good' ? 'bg-emerald-400' : level === 'critical' ? 'bg-red-500' : 'bg-amber-400';
+  const label = { good: 'Good connection', fair: 'Fair connection', poor: 'Weak connection', critical: 'Very weak connection' }[level];
+  return (
+    <span className="flex h-5 items-end gap-[3px] rounded-full bg-black/40 px-2.5 py-1" title={label} aria-label={label}>
+      {[1, 2, 3, 4].map((i) => <i key={i} className={`block w-[3px] rounded-sm ${i <= bars ? color : 'bg-white/25'}`} style={{ height: 4 + i * 3 }} />)}
+    </span>
+  );
+}
+
 function CtrlBtn({ onClick, active = false, danger = false, label, children, disabled }) {
   return (
     <div className="flex flex-col items-center gap-1">
@@ -206,7 +218,7 @@ function ActiveCall() {
     : {
         width: pipW, height: pipH, borderRadius: 16,
         left: corner[1] === 'l' ? 12 : `calc(100% - ${pipW + 12}px)`,
-        top: corner[0] === 't' ? 'calc(env(safe-area-inset-top) + 4.5rem)' : `calc(100% - ${pipH + 160}px)`,
+        top: corner[0] === 't' ? 'calc(env(safe-area-inset-top) + 8rem)' : `calc(100% - ${pipH + 160}px)`,
       };
   const slotClass = (role) =>
     `absolute overflow-hidden bg-black ${role === 'pip' ? 'z-20 cursor-pointer touch-none select-none border border-white/25 shadow-2xl' : 'z-0'} ${role === 'pip' && drag ? '' : 'transition-[left,top,width,height,border-radius] duration-300 ease-out'}`;
@@ -290,14 +302,21 @@ function ActiveCall() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {s.status === 'connected' && <SignalBars level={s.quality} />}
           {hasRemoteVideo && s.status === 'connected' && <span className="rounded-full bg-black/40 px-3 py-1 text-sm tabular-nums">{formatDuration(seconds)}</span>}
           {isVideo && document.fullscreenEnabled && <button onClick={toggleFull} className="btn-icon h-9 w-9" aria-label="Toggle fullscreen">{full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}
         </div>
       </div>
 
       <div className="relative z-10 flex flex-col items-center gap-2 px-4">
-        {(s.status === 'reconnecting' || s.peerStatus === 'disconnected') && (
-          <div className="flex items-center gap-2 rounded-full bg-amber-500/90 px-4 py-1.5 text-sm font-medium text-black"><WifiOff size={15} />{s.peerStatus === 'disconnected' ? `${s.peer?.name} lost connection — waiting…` : 'Connection unstable — reconnecting…'}</div>
+        {(s.networkOffline || s.status === 'reconnecting' || s.peerStatus === 'disconnected') && (
+          <div className="flex items-center gap-2 rounded-full bg-amber-500/90 px-4 py-1.5 text-sm font-medium text-black"><WifiOff size={15} />{s.networkOffline ? 'You are offline — the call will resume when internet returns' : s.peerStatus === 'disconnected' ? `${s.peer?.name} lost connection — waiting…` : 'Connection unstable — reconnecting…'}</div>
+        )}
+        {s.videoPaused && !s.networkOffline && s.status === 'connected' && (
+          <div className="rounded-full bg-black/60 px-4 py-1.5 text-center text-xs font-medium text-amber-300">Weak connection — video paused</div>
+        )}
+        {!s.videoPaused && ['poor', 'critical'].includes(s.quality) && s.status === 'connected' && !s.networkOffline && (
+          <div className="rounded-full bg-black/50 px-4 py-1.5 text-xs text-amber-200">Weak connection — lowering video quality</div>
         )}
         {s.remoteSharing && <div className="rounded-full bg-brand/90 px-4 py-1.5 text-sm font-medium text-bg">{s.peer?.name} is sharing their screen</div>}
         {s.sharing && <div className="rounded-full bg-brand/90 px-4 py-1.5 text-sm font-medium text-bg">You are sharing your screen</div>}

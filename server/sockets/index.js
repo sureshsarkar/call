@@ -11,8 +11,10 @@ function initSockets(httpServer, corsOrigin) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin, credentials: true },
     maxHttpBufferSize: 1e6, // SDP/ICE payloads are small
-    pingInterval: 10000,
-    pingTimeout: 10000,
+    // Generous keep-alive: on slow or lossy mobile links a 10s window caused false disconnects.
+    pingInterval: 25000,
+    pingTimeout: 30000,
+    connectTimeout: 45000,
   });
 
   // Secure socket authentication: JWT required in the handshake

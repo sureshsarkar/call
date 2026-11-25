@@ -5,7 +5,8 @@ const Notification = require('../models/Notification');
 const { emitToUser, isOnline, onlineUsers } = require('./state');
 
 const RING_TIMEOUT_MS = 45_000;
-const GRACE_MS = 15_000; // allow a dropped socket to reconnect without killing the call
+const GRACE_MS = 60_000; // a dropped socket / network switch may take a while on slow links: keep the call alive
+const MAX_QUEUED = 80;
 
 const calls = new Map(); // callId -> call
 const userCalls = new Map(); // userId -> callId
@@ -84,7 +85,7 @@ module.exports = function registerCall(io, socket) {
       const history = await CallHistory.create({ ...base, status: 'ringing' });
       const call = {
         id: String(history._id), caller: me, callee: String(to), type, state: 'ringing',
-        historyId: history._id, answeredAt: null, ringTimer: null, graceTimers: {},
+        historyId: history._id, answeredAt: null, ringTimer: null, graceTimers: {}, pending: {},
       };
       calls.set(call.id, call);
       userCalls.set(me, call.id);
@@ -148,7 +149,14 @@ module.exports = function registerCall(io, socket) {
       const call = calls.get(data.callId);
       if (!involved(call, me)) return;
       if (requireActive && call.state !== 'active') return;
-      emitToUser(io, otherParty(call, me), event, { ...data, from: me });
+      const target = otherParty(call, me);
+      const payload = { ...data, from: me };
+      if (isOnline(target)) return emitToUser(io, target, event, payload);
+      // peer's socket is down right now: hold the message and deliver it as soon as it reconnects
+      const q = (call.pending[target] ||= []);
+      if (event === 'ice_candidate' && q.length >= MAX_QUEUED) q.shift();
+      q.push({ event, payload });
+      return undefined;
     });
   relay('webrtc_offer');
   relay('webrtc_answer');
@@ -180,6 +188,12 @@ module.exports.onUserReconnected = (io, userId) => {
   clearTimeout(call.graceTimers[userId]);
   delete call.graceTimers[userId];
   emitToUser(io, otherParty(call, userId), 'call_peer_status', { callId: call.id, status: 'reconnected' });
+  // flush signaling that arrived while this user was offline (offers, answers, ICE candidates ...)
+  const queued = call.pending[userId];
+  if (queued?.length) {
+    delete call.pending[userId];
+    setTimeout(() => queued.forEach(({ event, payload }) => emitToUser(io, userId, event, payload)), 100);
+  }
 };
 
 module.exports.onUserGone = (io, userId) => {

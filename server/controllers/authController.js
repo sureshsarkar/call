@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const validator = require('validator');
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -25,7 +26,11 @@ exports.login = asyncHandler(async (req, res) => {
   const identifier = String(req.body.identifier || req.body.email || '').trim();
   const { password } = req.body;
   let accountQuery;
-  if (identifier.includes('@')) accountQuery = { email: identifier.toLowerCase() };
+  if (identifier.includes('@')) {
+    // same normalisation as registration (e.g. gmail +tag), so the stored address is always found
+    const normalised = validator.normalizeEmail(identifier, { gmail_remove_dots: false }) || identifier.toLowerCase();
+    accountQuery = { email: { $in: [...new Set([normalised, identifier.toLowerCase()])] } };
+  }
   else {
     const phone = normalizePhone(identifier);
     accountQuery = phone ? { phone } : { username: normalizeUsername(identifier) };

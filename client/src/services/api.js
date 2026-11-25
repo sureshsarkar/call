@@ -5,7 +5,7 @@ export const TOKEN_KEY = 'pulse_token';
 export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } };
 export const setToken = (t) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* storage blocked */ } };
 
-const api = axios.create({ baseURL: API_URL, timeout: 20000 });
+const api = axios.create({ baseURL: API_URL, timeout: 30000 });
 
 api.interceptors.request.use((cfg) => {
   const t = getToken();
