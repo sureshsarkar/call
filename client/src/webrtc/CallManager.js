@@ -14,7 +14,7 @@ import {
   canShareScreen, audioConstraints, videoConstraints,
 } from './media';
 import { createRnnoisePipeline } from './audioProcessing';
-import { classify, sampleFromStats, QualityController, VIDEO_PROFILES, AUDIO_PROFILE } from './networkQuality';
+import { classify, sampleFromStats, QualityController, VIDEO_PROFILES, AUDIO_PROFILE, effectiveVideoProfile } from './networkQuality';
 
 const FALLBACK_ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 // Slow-network tolerance: keep trying to recover for a long time instead of hanging up.
@@ -71,6 +71,7 @@ class CallManager {
     this.statTotals = null;
     this.qualityCtl = new QualityController();
     this.videoPausedByNetwork = false;
+    this.onRelay = false; // media currently travels through a TURN relay (metered) -> data-saver video
     this.tuned = false;
   }
 
@@ -238,7 +239,7 @@ class CallManager {
   }
 
   async applyVideoProfile(level) {
-    const prof = VIDEO_PROFILES[level];
+    const prof = effectiveVideoProfile(level, this.onRelay); // adaptive level, further capped on a relay
     await this.setSenderParams(this.videoSender, (e) => {
       e.active = prof.active;
       e.maxBitrate = prof.maxBitrate;
@@ -265,6 +266,7 @@ class CallManager {
     try {
       const { sample, totals } = sampleFromStats(await pc.getStats(), this.statTotals);
       this.statTotals = totals;
+      if (sample.relay !== this.onRelay) await this.onRelayChanged(sample.relay);
       // while video is paused the bandwidth estimate stops growing, so only rtt/loss decide when to resume
       const videoCall = get().type === 'video' && sample.hasVideo && !this.videoPausedByNetwork;
       const changed = this.qualityCtl.step(classify({ ...sample, hasVideo: videoCall }));
@@ -273,6 +275,15 @@ class CallManager {
     } catch (err) {
       console.warn('[call] stats failed', err.message);
     }
+  }
+
+  /** Call moved onto / off a TURN relay: relays are metered, so keep video lean while on one. */
+  async onRelayChanged(onRelay) {
+    this.onRelay = onRelay;
+    set({ relay: onRelay });
+    if (get().type !== 'video' || !this.videoSender || this.videoPausedByNetwork) return;
+    await this.applyVideoProfile(this.qualityCtl.level);
+    if (onRelay) toast('Using a relay connection — video quality is limited to save data', { icon: '📉', id: 'relay-saver' });
   }
 
   async applyQuality(level) {

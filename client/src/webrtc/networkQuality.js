@@ -15,6 +15,25 @@ export const VIDEO_PROFILES = {
   critical: { active: false, maxBitrate: 100_000, maxFramerate: 8, scaleResolutionDownBy: 4 },
 };
 
+/**
+ * Data-saver cap while media travels through a TURN relay. Relays are metered (free plans have small monthly
+ * quotas), so video is held to a low bitrate. Both directions pass through the relay, so this is roughly
+ * 4x the per-stream rate in relay traffic: ~150 kbps video => roughly 300 MB per hour of video call.
+ */
+export const RELAY_VIDEO_CAP = { maxBitrate: 150_000, maxFramerate: 12, scaleResolutionDownBy: 2 };
+
+/** The profile to actually apply: the adaptive-quality profile, further limited when on a relay. */
+export function effectiveVideoProfile(level, onRelay) {
+  const base = VIDEO_PROFILES[level];
+  if (!onRelay || !base.active) return base;
+  return {
+    active: true,
+    maxBitrate: Math.min(base.maxBitrate, RELAY_VIDEO_CAP.maxBitrate),
+    maxFramerate: Math.min(base.maxFramerate, RELAY_VIDEO_CAP.maxFramerate),
+    scaleResolutionDownBy: Math.max(base.scaleResolutionDownBy, RELAY_VIDEO_CAP.scaleResolutionDownBy),
+  };
+}
+
 /** Audio is tiny (Opus ~24-32 kbps) and always kept at high priority. */
 export const AUDIO_PROFILE = { maxBitrate: 32_000 };
 
@@ -92,7 +111,11 @@ export function sampleFromStats(report, prev) {
   let lost = 0;
   let received = 0;
   let hasVideo = false;
+  let pair = null;
+  const candidates = {};
   report.forEach((s) => {
+    if (s.type === 'local-candidate' || s.type === 'remote-candidate') candidates[s.id] = s;
+    if (s.type === 'candidate-pair' && (s.nominated || s.selected) && s.state === 'succeeded') pair = s;
     if (s.type === 'candidate-pair' && (s.nominated || s.selected) && s.state === 'succeeded') {
       if (typeof s.currentRoundTripTime === 'number') rttMs = Math.max(rttMs, s.currentRoundTripTime * 1000);
       if (typeof s.availableOutgoingBitrate === 'number') availKbps = s.availableOutgoingBitrate / 1000;
@@ -106,8 +129,11 @@ export function sampleFromStats(report, prev) {
       hasVideo = true;
     }
   });
+  // media goes through a TURN relay if either end of the selected pair is a relay candidate
+  const typeOfId = (id) => candidates[id]?.candidateType;
+  const relay = Boolean(pair) && (typeOfId(pair.localCandidateId) === 'relay' || typeOfId(pair.remoteCandidateId) === 'relay');
   const dLost = prev ? Math.max(0, lost - prev.lost) : 0;
   const dRecv = prev ? Math.max(0, received - prev.received) : 0;
   const inLoss = dLost + dRecv > 20 ? dLost / (dLost + dRecv) : 0; // ignore tiny samples
-  return { sample: { rttMs, loss: Math.max(outLoss, inLoss), availKbps, hasVideo }, totals: { lost, received } };
+  return { sample: { rttMs, loss: Math.max(outLoss, inLoss), availKbps, hasVideo, relay }, totals: { lost, received } };
 }

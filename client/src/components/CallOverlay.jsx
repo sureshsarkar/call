@@ -302,6 +302,7 @@ function ActiveCall() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {s.status === 'connected' && s.relay && isVideo && <span className="rounded-full bg-black/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300" title="Using a relay server — video quality is limited to save data">Relay</span>}
           {s.status === 'connected' && <SignalBars level={s.quality} />}
           {hasRemoteVideo && s.status === 'connected' && <span className="rounded-full bg-black/40 px-3 py-1 text-sm tabular-nums">{formatDuration(seconds)}</span>}
           {isVideo && document.fullscreenEnabled && <button onClick={toggleFull} className="btn-icon h-9 w-9" aria-label="Toggle fullscreen">{full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}

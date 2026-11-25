@@ -13,6 +13,7 @@ const initial = {
   noCamera: false,
   sharing: false,
   cameraSwitching: false,
+  relay: false, // media is going through a TURN relay
   quality: 'good', // good | fair | poor | critical (measured network quality)
   videoPaused: false, // video paused by the network-quality controller
   networkOffline: false, // the device itself lost internet
