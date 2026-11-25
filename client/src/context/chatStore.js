@@ -21,6 +21,7 @@ export const useChatStore = create((set, get) => ({
   onlineList: [],
   notifications: [],
   unreadNotifications: 0,
+  deliveryReceipts: {},
   calls: [],
   searchResults: { users: [], messages: [] },
 
@@ -124,6 +125,8 @@ export const useChatStore = create((set, get) => ({
     try {
       const before = older ? thread.messages.find((m) => !String(m._id).startsWith('tmp-'))?.createdAt : undefined;
       const { messages, hasMore } = await chatApi.history(userId, before);
+      const receivedIds = messages.filter((m) => idOf(m.receiver) === myId() && m.status === 'sent').map((m) => m._id);
+      if (receivedIds.length) getSocket()?.emit('messages_received', { messageIds: receivedIds });
       set((s) => {
         const cur = s.threads[userId] || emptyThread;
         const merged = older ? [...messages, ...cur.messages] : [...messages, ...cur.messages.filter((m) => !messages.some((x) => x._id === m._id))];
@@ -187,10 +190,12 @@ export const useChatStore = create((set, get) => ({
     set((s) => {
       const t = s.threads[userId] || emptyThread;
       const already = t.messages.some((m) => m._id === real._id);
+      const acknowledged = Boolean(s.deliveryReceipts[real._id]);
+      const synced = acknowledged && real.status === 'sent' ? { ...real, status: 'delivered' } : real;
       const messages = already
         ? t.messages.filter((m) => m._id !== tempId)
-        : t.messages.map((m) => (m._id === tempId ? real : m));
-      const conversations = s.conversations.map((c) => (c.userId === userId ? { ...c, lastMessage: real, updatedAt: real.createdAt } : c));
+        : t.messages.map((m) => (m._id === tempId ? synced : m));
+      const conversations = s.conversations.map((c) => (c.userId === userId ? { ...c, lastMessage: synced, updatedAt: synced.createdAt } : c));
       return { threads: { ...s.threads, [userId]: { ...t, messages } }, conversations };
     }),
 
@@ -233,11 +238,12 @@ export const useChatStore = create((set, get) => ({
 
   onSentFromOtherTab: (msg) => {
     const partner = partnerOf(msg);
+    const synced = get().deliveryReceipts[msg._id] && msg.status === 'sent' ? { ...msg, status: 'delivered' } : msg;
     const t = get().threads[partner];
-    if (msg.tempId && t?.messages.some((m) => m._id === msg.tempId)) get().replaceTemp(partner, msg.tempId, msg);
+    if (msg.tempId && t?.messages.some((m) => m._id === msg.tempId)) get().replaceTemp(partner, msg.tempId, synced);
     else {
-      get().appendMessage(partner, msg);
-      get().upsertConversation(partner, () => ({ lastMessage: msg, updatedAt: msg.createdAt }));
+      get().appendMessage(partner, synced);
+      get().upsertConversation(partner, () => ({ lastMessage: synced, updatedAt: synced.createdAt }));
     }
   },
 
@@ -250,8 +256,20 @@ export const useChatStore = create((set, get) => ({
   onSeenBy: (userId) =>
     get().patchMessage(userId, (m) => idOf(m.sender) === myId() && m.status !== 'seen' && m.status !== 'sending', () => ({ status: 'seen' })),
 
-  onDeliveredTo: (userId) =>
-    get().patchMessage(userId, (m) => idOf(m.sender) === myId() && m.status === 'sent', () => ({ status: 'delivered' })),
+  onDeliveredMessages: (messageIds = []) => {
+    const delivered = new Set(messageIds.map(String));
+    set((s) => {
+      const threads = Object.fromEntries(Object.entries(s.threads).map(([uid, thread]) => [uid, {
+        ...thread,
+        messages: thread.messages.map((m) => delivered.has(String(m._id)) && m.status === 'sent' ? { ...m, status: 'delivered' } : m),
+      }]));
+      const conversations = s.conversations.map((c) => ({
+        ...c,
+        lastMessage: c.lastMessage && delivered.has(String(c.lastMessage._id)) && c.lastMessage.status === 'sent' ? { ...c.lastMessage, status: 'delivered' } : c.lastMessage,
+      }));
+      return { threads, conversations, deliveryReceipts: { ...s.deliveryReceipts, ...Object.fromEntries([...delivered].map((id) => [id, true])) } };
+    });
+  },
 
   onDeleted: ({ messageId, scope }) =>
     set((s) => {

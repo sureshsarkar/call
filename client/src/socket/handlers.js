@@ -28,6 +28,7 @@ export function bindSocket(socket, navigate) {
 
   socket.on('receive_message', async (msg) => {
     const { partner, active } = await chat().onReceive(msg);
+    socket.emit('messages_received', { messageIds: [msg._id] });
     if (!active) {
       const sender = chat().usersById[partner];
       if (useSettingsStore.getState().sounds) playMessage();
@@ -39,7 +40,7 @@ export function bindSocket(socket, navigate) {
   socket.on('message_sent', (msg) => chat().onSentFromOtherTab(msg));
   socket.on('message_updated', (msg) => chat().onUpdated(msg));
   socket.on('message_seen', ({ by }) => chat().onSeenBy(by));
-  socket.on('messages_delivered', ({ to }) => chat().onDeliveredTo(to));
+  socket.on('messages_delivered', ({ messageIds }) => chat().onDeliveredMessages(messageIds));
   socket.on('message_deleted', (p) => chat().onDeleted(p));
   socket.on('chat_cleared', ({ userId }) => chat().applyChatCleared(userId)); // cleared from another tab/device
   socket.on('unread_cleared', ({ from }) => { chat().clearUnread(from); chat().markNotificationsReadFor(from); });

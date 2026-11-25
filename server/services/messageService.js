@@ -31,8 +31,8 @@ async function createMessage({ senderId, receiverId, text, receiverOnline, reply
     text: body,
     reply_to_message_id: replyTo,
     links: extractUrls(body).map((url) => ({ url })),
-    status: receiverOnline ? 'delivered' : 'sent',
-    deliveredAt: receiverOnline ? new Date() : undefined,
+    // A live socket or accepted push request is not proof that the receiver device got the message.
+    status: 'sent',
   });
   await Conversation.updateOne({ _id: conversation._id }, { lastMessage: message._id });
 

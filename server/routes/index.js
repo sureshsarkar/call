@@ -15,6 +15,7 @@ const push = require('../controllers/pushController');
 
 // ---- Auth
 router.get('/push/public-key', push.publicKey);
+router.post('/push/delivery-ack', push.deliveryAck);
 router.post('/push/subscribe', protect, push.subscribe);
 router.delete('/push/subscribe', protect, push.unsubscribe);
 router.post('/auth/register', authLimiter, v.register, validate, auth.register);

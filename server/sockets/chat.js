@@ -37,7 +37,7 @@ module.exports = function registerChat(io, socket) {
       emitToUser(io, data.to, 'receive_message', receiverPayload);
       emitToUser(io, me, 'message_sent', { ...senderPayload, tempId: data.tempId }); // all of my tabs
       emitToUser(io, data.to, 'notification', notification);
-      void sendPush(data.to, { kind: 'message', title: notification.from?.name || 'New message', body: message.text || 'Sent you a message', url: `/chat/${me}`, tag: `msg-${me}`, unread: notification.count }).catch((err) => console.error('[push] message', err.message));
+      void sendPush(data.to, { kind: 'message', messageId: String(message._id), title: notification.from?.name || 'New message', body: message.text || 'Sent you a message', url: `/chat/${me}`, tag: `msg-${me}`, unread: notification.count }).catch((err) => console.error('[push] message', err.message));
       reply({ ok: true, message: senderPayload });
 
       // link previews are fetched after delivery so sending is never blocked
@@ -57,6 +57,24 @@ module.exports = function registerChat(io, socket) {
     } catch (err) {
       reply({ ok: false, error: err.message || 'Failed to send' });
     }
+  });
+
+  // Only the receiving device acknowledges delivery; idempotent and never downgrades a read tick.
+  socket.on('messages_received', async ({ messageIds } = {}) => {
+    if (!Array.isArray(messageIds)) return;
+    const ids = messageIds.filter(isId).slice(0, 100);
+    if (!ids.length) return;
+    try {
+      await Message.updateMany({ _id: { $in: ids }, receiver: me, status: 'sent' }, { $set: { status: 'delivered', deliveredAt: new Date() } });
+      const rows = await Message.find({ _id: { $in: ids }, receiver: me }).select('_id sender status').lean();
+      const bySender = new Map();
+      for (const row of rows) {
+        if (row.status !== 'delivered') continue;
+        const key = String(row.sender);
+        bySender.set(key, [...(bySender.get(key) || []), String(row._id)]);
+      }
+      for (const [sender, deliveredIds] of bySender) emitToUser(io, sender, 'messages_delivered', { messageIds: deliveredIds });
+    } catch (err) { console.error('[socket] messages_received', err.message); }
   });
 
   socket.on('typing', ({ to } = {}) => isId(to) && emitToUser(io, to, 'typing', { from: me }));

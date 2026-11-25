@@ -45,6 +45,12 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data.json(); } catch { data = { title: 'Pulse', body: event.data?.text() || 'New activity' }; }
   event.waitUntil((async () => {
+    if (data.kind === 'message' && data.messageId && data.ackUrl) {
+      try {
+        const sub = await self.registration.pushManager.getSubscription();
+        if (sub) await fetch(data.ackUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint, messageId: data.messageId }) });
+      } catch { /* the next foreground socket/history sync can confirm delivery */ }
+    }
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     if (windows.some((c) => c.visibilityState === 'visible')) return;
     const call = data.kind === 'call';

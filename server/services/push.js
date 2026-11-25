@@ -17,7 +17,8 @@ async function sendPush(userId, payload) {
   const rows = await PushSubscription.find({ user: userId }).lean();
   await Promise.all(rows.map(async (row) => {
     try {
-      await webpush.sendNotification({ endpoint: row.endpoint, keys: row.keys }, JSON.stringify(payload), { TTL: 60, urgency: payload.kind === 'call' ? 'high' : 'normal' });
+      const receipt = payload.kind === 'message' ? { messageId: payload.messageId, ackUrl: row.ackUrl } : {};
+      await webpush.sendNotification({ endpoint: row.endpoint, keys: row.keys }, JSON.stringify({ ...payload, ...receipt }), { TTL: payload.kind === 'call' ? 60 : 86400, urgency: payload.kind === 'call' ? 'high' : 'normal' });
     } catch (err) {
       if (err.statusCode === 404 || err.statusCode === 410) await PushSubscription.deleteOne({ _id: row._id });
       else console.error('[push] delivery failed', err.statusCode || err.message);

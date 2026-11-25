@@ -1,7 +1,6 @@
 const { Server } = require('socket.io');
 const config = require('../config/env');
 const User = require('../models/User');
-const Message = require('../models/Message');
 const { userFromToken } = require('../middleware/auth');
 const { onlineUsers, room, emitToUser } = require('./state');
 const registerChat = require('./chat');
@@ -57,12 +56,6 @@ function initSockets(httpServer, corsOrigin) {
       (async () => {
         await User.updateOne({ _id: userId }, { isOnline: true });
         socket.broadcast.emit('user_online', { userId });
-        // everything sent to me while I was offline is now "delivered"
-        const pending = await Message.find({ receiver: userId, status: 'sent' }).distinct('sender');
-        if (pending.length) {
-          await Message.updateMany({ receiver: userId, status: 'sent' }, { status: 'delivered', deliveredAt: new Date() });
-          pending.forEach((s) => emitToUser(io, s, 'messages_delivered', { to: userId }));
-        }
       })().catch((err) => console.error('[socket] presence', err.message));
     }
   });
