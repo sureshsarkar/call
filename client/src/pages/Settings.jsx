@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 import { useSettingsStore } from '../context/settingsStore';
 import { rnnoiseSupported } from '../webrtc/audioProcessing';
 import { listDevices, canPickSpeaker, mediaErrorMessage, audioConstraints } from '../webrtc/media';
+import { testConnection, interpret } from '../webrtc/connectionTest';
+import { callApi } from '../services/api';
 
 function Toggle({ label, desc, checked, onChange, disabled }) {
   return (
@@ -23,6 +25,43 @@ function Select({ label, value, list, onChange }) {
         {list.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
       </select>
     </label>
+  );
+}
+
+/** Checks that calls can connect from here, and whether the TURN relay works (important on mobile networks). */
+function ConnectionTest() {
+  const [state, setState] = useState('idle'); // idle | running | done | error
+  const [lines, setLines] = useState([]);
+  const [raw, setRaw] = useState(null);
+
+  const run = async () => {
+    setState('running');
+    try {
+      const servers = await callApi.iceServers();
+      const result = await testConnection(servers);
+      setRaw(result);
+      setLines(interpret(result));
+      setState('done');
+    } catch (err) {
+      setLines([{ ok: false, text: err.message || 'The test could not run in this browser.' }]);
+      setState('error');
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-panel2 p-4">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <span className="font-medium">Call connection test</span>
+        <button className="btn-primary !py-1.5 text-sm" onClick={run} disabled={state === 'running'}>{state === 'running' ? 'Testing…' : 'Run test'}</button>
+      </div>
+      <p className="text-sm text-mute">Checks whether calls can connect from this network, including the TURN relay used on strict networks.</p>
+      {lines.length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-sm">
+          {lines.map((l) => <li key={l.text} className={l.ok ? 'text-emerald-400' : 'text-amber-300'}>{l.ok ? '✔' : '⚠'} {l.text}</li>)}
+        </ul>
+      )}
+      {raw && <p className="mt-2 text-xs text-mute">Candidates found — direct: {raw.host}, STUN: {raw.srflx}, relay: {raw.relay}</p>}
+    </div>
   );
 }
 
@@ -79,6 +118,8 @@ export default function Settings() {
           <div className="mb-3 flex items-center justify-between"><span className="font-medium">Microphone test</span><button className="btn-primary !py-1.5 text-sm" onClick={testMic} disabled={testing}>{testing ? 'Listening…' : 'Test (8s)'}</button></div>
           <div className="h-2.5 overflow-hidden rounded-full bg-panel3"><div className="h-full rounded-full bg-brand transition-all duration-75" style={{ width: `${level}%` }} /></div>
         </div>
+
+        <ConnectionTest />
 
         <h2 className="pt-4 text-sm font-semibold uppercase tracking-wide text-brand">Notifications</h2>
         <Toggle label="Sounds" desc="Ringtones and message tones." checked={s.sounds} onChange={(v) => s.update({ sounds: v })} />

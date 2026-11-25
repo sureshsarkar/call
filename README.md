@@ -97,7 +97,21 @@ sudo certbot --nginx -d api.example.com
 ### Frontend — Vercel
 Import the repo, **Root Directory = `client`**, framework *Vite*. Env vars: `VITE_API_URL=https://api.example.com/api`, `VITE_SOCKET_URL=https://api.example.com`. `client/vercel.json` adds the SPA rewrite and a `Permissions-Policy` that permits camera, microphone and display-capture. After deploying, put the Vercel URL into the backend's `CLIENT_URL` (no trailing slash; add a custom domain too if you have one).
 
-### TURN (coturn) — required for reliable calls
+### TURN — required for reliable calls (pick ONE option)
+STUN alone fails for users behind symmetric NAT / many mobile carriers / strict Wi-Fi. A TURN server relays the media in those cases.
+
+**Option 1 — Cloudflare Realtime TURN (recommended, free 1,000 GB/month, no server to run)**
+1. Cloudflare dashboard → *Realtime* → *TURN Server* → create a TURN key. Copy the **Key ID** and **API Token**.
+2. Render → your service → *Environment*: add `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN` (keep them secret; they only live on the server). Optionally `CF_TURN_TTL` (seconds, default 86400).
+3. Save — Render redeploys. The server mints short-lived credentials per hour and hands them to logged-in users only.
+
+**Option 2 — Metered (free 20 GB/month)**: create a free account, then set `TURN_URLS=turn:standard.relay.metered.ca:80,turn:standard.relay.metered.ca:443,turns:standard.relay.metered.ca:443?transport=tcp`, plus the `TURN_USERNAME` and `TURN_CREDENTIAL` shown in the Metered dashboard.
+
+**Option 3 — your own coturn** (below).
+
+**Verify it works:** in the app open *Settings → Call connection test → Run test*. You should see "TURN relay works". Test once on Wi-Fi and once on mobile data.
+
+### Self-hosted TURN (coturn)
 STUN alone fails for users behind symmetric NAT / many mobile carriers / corporate firewalls (~10–20 % of calls).
 ```bash
 sudo apt install coturn

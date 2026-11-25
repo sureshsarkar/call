@@ -1,6 +1,6 @@
 const CallHistory = require('../models/CallHistory');
 const asyncHandler = require('../utils/asyncHandler');
-const { getIceServers } = require('../services/ice');
+const { getIceServers, hasTurn } = require('../services/ice');
 
 exports.history = asyncHandler(async (req, res) => {
   const me = req.user._id;
@@ -26,5 +26,6 @@ exports.history = asyncHandler(async (req, res) => {
 });
 
 exports.iceServers = asyncHandler(async (req, res) => {
-  res.json({ iceServers: getIceServers(req.user._id) });
+  const iceServers = await getIceServers(req.user._id);
+  res.json({ iceServers, turnConfigured: hasTurn(iceServers) });
 });

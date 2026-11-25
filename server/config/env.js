@@ -20,6 +20,12 @@ const config = {
     turnCredential: process.env.TURN_CREDENTIAL || '',
     turnSecret: process.env.TURN_SECRET || '', // coturn static-auth-secret (REST API credentials)
     turnTtl: Number(process.env.TURN_TTL) || 3600,
+    // Cloudflare Realtime TURN (managed, short-lived credentials generated server-side)
+    cloudflare: {
+      keyId: process.env.CF_TURN_KEY_ID || '',
+      apiToken: process.env.CF_TURN_API_TOKEN || '',
+      ttl: Number(process.env.CF_TURN_TTL) || 86400, // credential lifetime (seconds)
+    },
   },
   smtp: {
     host: process.env.SMTP_HOST || '',
