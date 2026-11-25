@@ -71,6 +71,13 @@ Pulse is built phone-first. On a phone it behaves like a native app: bottom tab 
 * Always on: browser DSP via constraints (`echoCancellation`, `noiseSuppression`, `autoGainControl`, mono, `voiceIsolation` where supported).
 * Optional (Settings → *AI noise cancellation*): **RNNoise** (neural suppressor compiled to WASM, from `@sapphi-red/web-noise-suppressor`) in an `AudioWorklet`: `mic → RNNoise → MediaStreamDestination → RTCPeerConnection`. Runs locally at 48 kHz; if it can't load it falls back to browser processing automatically. A built-in mic test (Settings) shows the live level.
 
+## 2b. Auto-delete (privacy)
+All chat data is deleted from MongoDB automatically **24 hours after it is created** (change with `MESSAGE_TTL_HOURS`, `0` = keep forever):
+* **messages** — 24 h after each message was sent; **chats** (conversation records) and **notification previews** — 24 h after the last activity.
+* Implemented with MongoDB TTL indexes (created on server start; changing the value updates them in place). Expired data is also hidden by every API query immediately, and removed from open screens within ~30 s.
+* **Not** deleted: user accounts and call history (who called whom, when, and for how long — no content).
+* On the first start after enabling it, everything older than the lifetime is removed within about a minute. This cannot be undone — take an Atlas backup first if you need the old data.
+
 ## 3. Security measures
 bcrypt (cost 11) · JWT with server-side revocation (`tokenVersion` bumps on password reset/change) · Socket.IO handshake auth · `helmet` · strict CORS allow-list · rate limits (global, stricter on auth, link previews) · `express-validator` on every route · NoSQL-operator stripping · control-char/angle-bracket sanitising + React output escaping · only `http(s)` links are rendered, with `rel="noopener noreferrer nofollow"` · avatar upload: MIME allow-list + magic-byte check + random filenames + 2 MB cap · conversations are looked up by *authenticated participant pair*, so one user can never read another's messages · link-preview fetcher blocks private/loopback/link-local IPs at connect time (SSRF/DNS-rebinding safe), 512 KB / 6 s caps · call signaling only relays between the two call participants · per-socket message rate limit · coturn config denies relaying to private ranges.
 

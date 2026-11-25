@@ -43,6 +43,15 @@ export function formatDuration(totalSeconds) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+/** "24 hours" -> "24 hours", 48 -> "2 days", 0.5 -> "30 minutes" */
+export function formatTtl(hours) {
+  if (!hours) return '';
+  if (hours >= 24 && hours % 24 === 0) return `${hours / 24} day${hours / 24 === 1 ? '' : 's'}`;
+  if (hours >= 1) { const h = Math.round(hours * 10) / 10; return `${h} hour${h === 1 ? '' : 's'}`; }
+  const m = Math.max(1, Math.round(hours * 60));
+  return `${m} minute${m === 1 ? '' : 's'}`;
+}
+
 export const initials = (name = '?') =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 

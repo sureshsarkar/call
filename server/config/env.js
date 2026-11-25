@@ -13,6 +13,8 @@ const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   clientUrls: list(process.env.CLIENT_URL, ['http://localhost:5173']),
   uploadDir: process.env.UPLOAD_DIR || 'uploads',
+  // Auto-delete chat data this many hours after it was created (0 disables). Fractions allowed (0.5 = 30 min).
+  messageTtlHours: process.env.MESSAGE_TTL_HOURS !== undefined && process.env.MESSAGE_TTL_HOURS !== '' ? Math.max(0, Number(process.env.MESSAGE_TTL_HOURS) || 0) : 24,
   ice: {
     stunUrls: list(process.env.STUN_URLS, ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']),
     turnUrls: list(process.env.TURN_URLS),

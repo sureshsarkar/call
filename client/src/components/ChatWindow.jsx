@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Phone, Video, UserPlus, UserCheck, ChevronDown, Copy, Trash2, Eraser, MoreVertical } from 'lucide-react';
+import { ArrowLeft, Phone, Video, UserPlus, UserCheck, ChevronDown, Copy, Trash2, Eraser, MoreVertical, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
@@ -9,7 +9,7 @@ import BottomSheet, { SheetAction } from './BottomSheet';
 import { useChatStore } from '../context/chatStore';
 import { useAuthStore } from '../context/authStore';
 import { callManager } from '../webrtc/CallManager';
-import { formatDayLabel, formatLastSeen } from '../utils/format';
+import { formatDayLabel, formatLastSeen, formatTtl } from '../utils/format';
 import { vibrate } from '../utils/haptics';
 
 const idOf = (v) => String(v?._id ?? v);
@@ -23,6 +23,7 @@ export default function ChatWindow() {
   const online = useChatStore((s) => Boolean(s.onlineIds[userId]));
   const typing = useChatStore((s) => Boolean(s.typing[userId]));
   const isContact = useChatStore((s) => s.contacts.includes(userId));
+  const ttlHours = useChatStore((s) => s.ttlHours);
   const { setActive, fetchUser, loadHistory, sendMessage, deleteMessage, retryMessage, addContact, removeContact, markSeen, clearChat } = useChatStore.getState();
 
   const scroller = useRef(null);
@@ -144,6 +145,11 @@ export default function ChatWindow() {
 
       <div className="relative min-h-0 flex-1">
         <div ref={scroller} onScroll={onScroll} className="chat-wallpaper h-full overflow-y-auto overscroll-contain py-3">
+          {ttlHours > 0 && (
+            <p className="mx-auto mb-2 flex w-fit max-w-[90%] items-center gap-1.5 rounded-full bg-panel2/80 px-3 py-1 text-center text-[11px] text-mute">
+              <Clock size={12} className="shrink-0" /> Messages are deleted automatically {formatTtl(ttlHours)} after they are sent
+            </p>
+          )}
           {thread?.loading && <p className="py-2 text-center text-xs text-mute">Loading…</p>}
           {thread?.loaded && !messages.length && (
             <p className="mx-auto mt-8 max-w-xs rounded-2xl bg-panel2/80 px-4 py-2 text-center text-sm text-mute">No messages yet. Say hello 👋</p>

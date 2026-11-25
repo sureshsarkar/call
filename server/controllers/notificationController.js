@@ -1,8 +1,9 @@
 const Notification = require('../models/Notification');
+const { cutoff } = require('../utils/retention');
 const asyncHandler = require('../utils/asyncHandler');
 
 exports.list = asyncHandler(async (req, res) => {
-  const notifications = await Notification.find({ user: req.user._id })
+  const notifications = await Notification.find({ user: req.user._id, updatedAt: { $gte: cutoff() } })
     .sort({ updatedAt: -1 })
     .limit(50)
     .populate('from', 'name avatar')

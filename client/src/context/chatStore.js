@@ -11,6 +11,7 @@ const emptyThread = { messages: [], hasMore: false, loading: false, loaded: fals
 
 export const useChatStore = create((set, get) => ({
   usersById: {},
+  ttlHours: 0, // chat data auto-deletes this many hours after it is sent (0 = never)
   conversations: [], // [{ _id, userId, lastMessage, unreadCount, updatedAt }]
   threads: {}, // userId -> { messages, hasMore, loading, loaded }
   activeUserId: null,
@@ -55,14 +56,37 @@ export const useChatStore = create((set, get) => ({
   // ---------- conversations
   loadConversations: async () => {
     try {
-      const items = await chatApi.conversations();
+      const { conversations: items, ttlHours } = await chatApi.conversations();
       get().cacheUsers(items.map((c) => c.participant));
       set({
+        ttlHours: ttlHours || 0,
         conversations: items.map((c) => ({
           _id: c._id, userId: c.participant._id, lastMessage: c.lastMessage, unreadCount: c.unreadCount, updatedAt: c.updatedAt,
         })),
       });
     } catch (err) { toast.error(errMsg(err)); }
+  },
+
+  /** Drops anything older than the auto-delete lifetime from the screen (the server deletes it from the database). */
+  pruneExpired: () => {
+    const hours = get().ttlHours;
+    if (!hours) return;
+    const cutoff = Date.now() - hours * 3600 * 1000;
+    const fresh = (d) => new Date(d).getTime() >= cutoff;
+    set((s) => {
+      let changed = false;
+      const threads = {};
+      for (const [uid, t] of Object.entries(s.threads)) {
+        const messages = t.messages.filter((m) => fresh(m.createdAt));
+        if (messages.length !== t.messages.length) changed = true;
+        threads[uid] = messages.length === t.messages.length ? t : { ...t, messages };
+      }
+      const conversations = s.conversations.filter((c) => fresh(c.updatedAt));
+      const notifications = s.notifications.filter((n) => fresh(n.updatedAt || n.createdAt));
+      if (conversations.length !== s.conversations.length || notifications.length !== s.notifications.length) changed = true;
+      if (!changed) return s;
+      return { threads, conversations, notifications, unreadNotifications: notifications.filter((n) => !n.read).length };
+    });
   },
 
   upsertConversation: (userId, patch) =>

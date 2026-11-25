@@ -18,6 +18,12 @@ export default function AppLayout() {
     useChatStore.getState().loadNotifications();
   }, []);
 
+  // keep the screen in step with server-side auto-delete (24h by default)
+  useEffect(() => {
+    const id = setInterval(() => useChatStore.getState().pruneExpired(), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Dynamic title with unread count
   const unread = useChatStore((s) => s.conversations.reduce((a, c) => a + c.unreadCount, 0));
   useEffect(() => { document.title = unread ? `(${unread}) Pulse` : 'Pulse – Chat, Audio & Video Calls'; }, [unread]);

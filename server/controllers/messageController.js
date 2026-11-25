@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { escapeRegex } = require('../utils/text');
 const { emitToUser } = require('../sockets/state');
+const { cutoff } = require('../utils/retention');
 const { populateReplies } = require('../services/messageService');
 
 exports.history = asyncHandler(async (req, res) => {
@@ -13,8 +14,8 @@ exports.history = asyncHandler(async (req, res) => {
   const conversation = await Conversation.findOne({ participantsKey: Conversation.keyFor(me, req.params.userId) });
   if (!conversation) return res.json({ messages: [], hasMore: false });
 
-  const filter = { conversation: conversation._id, deletedFor: { $ne: me } };
-  if (req.query.before) filter.createdAt = { $lt: new Date(req.query.before) };
+  const filter = { conversation: conversation._id, deletedFor: { $ne: me }, createdAt: { $gte: cutoff() } };
+  if (req.query.before) filter.createdAt.$lt = new Date(req.query.before);
 
   const rows = await Message.find(filter).sort({ createdAt: -1 }).limit(limit + 1).lean();
   const hasMore = rows.length > limit;
@@ -25,7 +26,7 @@ exports.history = asyncHandler(async (req, res) => {
 
 exports.getOne = asyncHandler(async (req, res) => {
   const me = req.user._id;
-  const message = await Message.findOne({ _id: req.params.id, deletedFor: { $ne: me } })
+  const message = await Message.findOne({ _id: req.params.id, deletedFor: { $ne: me }, createdAt: { $gte: cutoff() } })
     .populate('sender', 'name avatar')
     .lean();
   if (!message || ![String(message.sender?._id || message.sender), String(message.receiver)].includes(String(me))) {
@@ -42,6 +43,7 @@ exports.search = asyncHandler(async (req, res) => {
   const rows = await Message.find({
     conversation: { $in: [...byId.keys()] },
     deletedFor: { $ne: me },
+    createdAt: { $gte: cutoff() },
     deletedForEveryone: false,
     text: new RegExp(escapeRegex(req.query.q), 'i'),
   })

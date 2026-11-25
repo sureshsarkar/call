@@ -5,6 +5,7 @@ const Notification = require('../models/Notification');
 const ApiError = require('../utils/ApiError');
 const { cleanText, extractUrls } = require('../utils/text');
 const { getLinkPreview } = require('./linkPreview');
+const { cutoff } = require('../utils/retention');
 
 /** Persists a message, updates the conversation and the receiver's notification. */
 async function createMessage({ senderId, receiverId, text, receiverOnline, replyToMessageId }) {
@@ -19,7 +20,7 @@ async function createMessage({ senderId, receiverId, text, receiverOnline, reply
   let replyTo = null;
   if (replyToMessageId) {
     if (!require('mongoose').isValidObjectId(replyToMessageId)) throw new ApiError(400, 'Invalid message being replied to');
-    const original = await Message.findOne({ _id: replyToMessageId, conversation: conversation._id, deletedForEveryone: false, deletedFor: { $ne: senderId } }).select('_id');
+    const original = await Message.findOne({ _id: replyToMessageId, conversation: conversation._id, deletedForEveryone: false, deletedFor: { $ne: senderId }, createdAt: { $gte: cutoff() } }).select('_id');
     if (!original) throw new ApiError(404, 'Original message is unavailable');
     replyTo = original._id;
   }
@@ -61,7 +62,7 @@ async function populateReplies(messages, viewerId) {
   for (const message of list) {
     const original = message.reply_to_message_id;
     if (!original) continue;
-    if (original.deletedFor?.some((id) => String(id) === String(viewerId))) {
+    if (original.createdAt < cutoff() || original.deletedFor?.some((id) => String(id) === String(viewerId))) {
       message.replyTo = { unavailable: true };
     } else {
       message.replyTo = {
