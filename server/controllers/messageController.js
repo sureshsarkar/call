@@ -1,5 +1,6 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const Notification = require('../models/Notification');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { escapeRegex } = require('../utils/text');
@@ -55,6 +56,32 @@ exports.search = asyncHandler(async (req, res) => {
       return { _id: m._id, text: m.text, createdAt: m.createdAt, sender: m.sender._id, withUser: other };
     }),
   });
+});
+
+/**
+ * "Clear chat": hides every message of this conversation from the caller only (the other person keeps theirs).
+ * Unread incoming messages are marked seen, so the sender is not left with permanent grey ticks.
+ */
+exports.clearChat = asyncHandler(async (req, res) => {
+  const me = req.user._id;
+  const other = req.params.userId;
+  const conversation = await Conversation.findOne({ participantsKey: Conversation.keyFor(me, other) });
+  if (!conversation) return res.json({ cleared: 0 });
+  const io = req.app.get('io');
+
+  const seen = await Message.updateMany(
+    { conversation: conversation._id, receiver: me, status: { $ne: 'seen' } },
+    { status: 'seen', seenAt: new Date() }
+  );
+  const result = await Message.updateMany(
+    { conversation: conversation._id, deletedFor: { $ne: me } },
+    { $addToSet: { deletedFor: me } }
+  );
+  await Notification.updateMany({ user: me, from: other, type: 'message', read: false }, { read: true });
+
+  if (seen.modifiedCount > 0) emitToUser(io, other, 'message_seen', { by: me, conversationId: conversation._id });
+  emitToUser(io, me, 'chat_cleared', { userId: String(other) }); // keeps my other tabs/devices in sync
+  res.json({ cleared: result.modifiedCount });
 });
 
 exports.remove = asyncHandler(async (req, res) => {

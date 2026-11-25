@@ -35,6 +35,7 @@ router.get('/users/:id', protect, v.idParam, validate, users.getUser);
 router.get('/conversations', protect, conversations.list);
 router.get('/messages/search', protect, v.searchMessages, validate, messages.search);
 router.get('/messages/with/:userId', protect, v.messageList, validate, messages.history);
+router.delete('/messages/with/:userId', protect, v.userIdParam, validate, messages.clearChat);
 router.get('/messages/:id', protect, v.idParam, validate, messages.getOne);
 router.delete('/messages/:id', protect, v.deleteMessage, validate, messages.remove);
 

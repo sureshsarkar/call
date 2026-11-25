@@ -41,6 +41,7 @@ export function bindSocket(socket, navigate) {
   socket.on('message_seen', ({ by }) => chat().onSeenBy(by));
   socket.on('messages_delivered', ({ to }) => chat().onDeliveredTo(to));
   socket.on('message_deleted', (p) => chat().onDeleted(p));
+  socket.on('chat_cleared', ({ userId }) => chat().applyChatCleared(userId)); // cleared from another tab/device
   socket.on('unread_cleared', ({ from }) => { chat().clearUnread(from); chat().markNotificationsReadFor(from); });
   socket.on('notification', (n) => { if (n.type === 'missed_call' || chat().activeUserId !== String(n.from?._id)) chat().addNotification(n); });
 

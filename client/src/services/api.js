@@ -55,6 +55,7 @@ export const chatApi = {
   history: (userId, before) => api.get(`/messages/with/${userId}`, { params: { before, limit: 40 } }).then((r) => r.data),
   getMessage: (id) => api.get(`/messages/${id}`).then((r) => r.data.message),
   search: (q) => api.get('/messages/search', { params: { q } }).then((r) => r.data.results),
+  clear: (userId) => api.delete(`/messages/with/${userId}`).then((r) => r.data),
   remove: (id, scope) => api.delete(`/messages/${id}`, { params: { scope } }).then((r) => r.data),
 };
 export const notificationApi = {

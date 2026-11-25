@@ -170,6 +170,23 @@ export const useChatStore = create((set, get) => ({
       return { threads: { ...s.threads, [userId]: { ...t, messages } }, conversations };
     }),
 
+  /** "Clear chat": removes every message for me only (the other person keeps theirs). */
+  clearChat: async (userId) => {
+    try {
+      await chatApi.clear(userId);
+      get().applyChatCleared(userId);
+      toast.success('Chat cleared');
+    } catch (err) { toast.error(errMsg(err)); }
+  },
+
+  applyChatCleared: (userId) => {
+    set((s) => ({
+      threads: { ...s.threads, [userId]: { messages: [], hasMore: false, loading: false, loaded: true } },
+      conversations: s.conversations.map((c) => (c.userId === userId ? { ...c, lastMessage: null, unreadCount: 0 } : c)),
+    }));
+    get().markNotificationsReadFor(userId);
+  },
+
   deleteMessage: async (userId, message, scope) => {
     try {
       await chatApi.remove(message._id, scope);

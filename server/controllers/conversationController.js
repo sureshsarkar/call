@@ -18,10 +18,16 @@ exports.list = asyncHandler(async (req, res) => {
   ]);
   const unreadMap = new Map(unread.map((u) => [String(u._id), u.count]));
 
+  // If the newest message was deleted/cleared for me, show the latest one I can still see (none after "Clear chat").
+  const hiddenFromMe = (m) => m?.deletedFor?.some((id) => String(id) === String(me));
+  await Promise.all(conversations.map(async (c) => {
+    if (!hiddenFromMe(c.lastMessage)) return;
+    c.lastMessage = await Message.findOne({ conversation: c._id, deletedFor: { $ne: me } }).sort({ createdAt: -1 }).lean();
+  }));
+
   const items = conversations.map((c) => {
     const participant = c.participants.find((p) => String(p._id) !== String(me));
-    let last = c.lastMessage;
-    if (last && last.deletedFor?.some((id) => String(id) === String(me))) last = { ...last, text: '', deletedForMe: true };
+    const last = c.lastMessage;
     return {
       _id: c._id,
       participant,

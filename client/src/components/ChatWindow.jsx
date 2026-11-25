@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Phone, Video, UserPlus, UserCheck, ChevronDown, Copy, Trash2, Eraser } from 'lucide-react';
+import { ArrowLeft, Phone, Video, UserPlus, UserCheck, ChevronDown, Copy, Trash2, Eraser, MoreVertical } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
@@ -23,13 +23,16 @@ export default function ChatWindow() {
   const online = useChatStore((s) => Boolean(s.onlineIds[userId]));
   const typing = useChatStore((s) => Boolean(s.typing[userId]));
   const isContact = useChatStore((s) => s.contacts.includes(userId));
-  const { setActive, fetchUser, loadHistory, sendMessage, deleteMessage, retryMessage, addContact, removeContact, markSeen } = useChatStore.getState();
+  const { setActive, fetchUser, loadHistory, sendMessage, deleteMessage, retryMessage, addContact, removeContact, markSeen, clearChat } = useChatStore.getState();
 
   const scroller = useRef(null);
   const stick = useRef(true);
   const prevHeight = useRef(0);
   const [showDown, setShowDown] = useState(false);
   const [sheet, setSheet] = useState(null); // { message, mine }
+  const [menu, setMenu] = useState(false); // chat options (clear chat, contact)
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [reply, setReply] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
   const messages = thread?.messages;
@@ -97,6 +100,13 @@ export default function ChatWindow() {
     });
   }, [thread?.messages, me?._id, userId]);
 
+  const doClear = async () => {
+    setClearing(true);
+    await clearChat(userId);
+    setClearing(false);
+    setConfirmClear(false);
+  };
+
   const copyText = async () => {
     try { await navigator.clipboard.writeText(sheet.message.text); toast.success('Copied'); } catch { toast.error('Could not copy'); }
     setSheet(null);
@@ -129,6 +139,7 @@ export default function ChatWindow() {
         </button>
         <button className="btn-icon h-11 w-11 text-ink md:h-10 md:w-10 md:text-mute" title="Audio call" disabled={!user} onClick={() => { vibrate(8); callManager.start(user, 'audio'); }}><Phone size={22} /></button>
         <button className="btn-icon h-11 w-11 text-ink md:h-10 md:w-10 md:text-mute" title="Video call" disabled={!user} onClick={() => { vibrate(8); callManager.start(user, 'video'); }}><Video size={23} /></button>
+        <button className="btn-icon h-11 w-11 text-ink md:h-10 md:w-10 md:text-mute" title="More options" aria-label="More options" onClick={() => setMenu(true)}><MoreVertical size={22} /></button>
       </header>
 
       <div className="relative min-h-0 flex-1">
@@ -158,6 +169,21 @@ export default function ChatWindow() {
       </div>
 
       <MessageInput userId={userId} onSend={onSend} reply={reply} onCancelReply={() => setReply(null)} />
+
+      {/* chat options */}
+      <BottomSheet open={menu} onClose={() => setMenu(false)} title={user?.name}>
+        <SheetAction icon={isContact ? UserCheck : UserPlus} label={isContact ? 'Remove from contacts' : 'Add to contacts'} onClick={() => { setMenu(false); (isContact ? removeContact : addContact)(userId); }} />
+        <SheetAction icon={Trash2} danger label="Clear chat" onClick={() => { setMenu(false); setConfirmClear(true); }} />
+      </BottomSheet>
+
+      {/* confirm: clear chat */}
+      <BottomSheet open={confirmClear} onClose={() => !clearing && setConfirmClear(false)} title="Clear this chat?">
+        <p className="px-4 pb-3 text-sm text-mute">All messages with {user?.name || 'this person'} will be removed from <b className="text-ink">your</b> device and account. {user?.name?.split(' ')[0] || 'They'} will still keep their copy. This cannot be undone.</p>
+        <div className="flex gap-3 px-3 pb-2">
+          <button className="press h-12 flex-1 rounded-xl bg-panel3 text-[15px] font-medium" disabled={clearing} onClick={() => setConfirmClear(false)}>Cancel</button>
+          <button className="press h-12 flex-1 rounded-xl bg-danger text-[15px] font-semibold text-white disabled:opacity-60" disabled={clearing} onClick={doClear}>{clearing ? 'Clearing…' : 'Clear chat'}</button>
+        </div>
+      </BottomSheet>
 
       {/* long-press action sheet (touch) */}
       <BottomSheet open={Boolean(sheet)} onClose={() => setSheet(null)} title={sheet ? `${sheet.message.text.slice(0, 60)}${sheet.message.text.length > 60 ? '…' : ''}` : ''}>
