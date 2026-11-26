@@ -6,7 +6,7 @@ import { useSettingsStore } from '../context/settingsStore';
 import { callManager } from '../webrtc/CallManager';
 import { groupCallManager } from '../webrtc/GroupCallManager';
 import { useCallStore } from '../context/callStore';
-import { playMessage } from '../utils/sounds';
+import { playMessage, playNotification } from '../utils/sounds';
 import { systemNotify } from '../utils/notify';
 import { useAppConfigStore } from '../context/appConfigStore';
 
@@ -60,6 +60,7 @@ export function bindSocket(socket, navigate) {
   socket.on('notification', (n) => {
     const activeGroup = n.group && groups().activeGroupId === String(n.group?._id);
     if (activeGroup) { void groups().markRead(String(n.group._id)); return; }
+    if (useSettingsStore.getState().sounds && !['message', 'group_message'].includes(n.type)) playNotification();
     if (n.type === 'missed_call' || (n.group ? true : chat().activeUserId !== String(n.from?._id))) chat().addNotification(n);
   });
 

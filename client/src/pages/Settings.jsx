@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Volume2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useSettingsStore } from '../context/settingsStore';
 import { enablePush, disablePush } from '../utils/push';
@@ -8,6 +8,7 @@ import { rnnoiseSupported } from '../webrtc/audioProcessing';
 import { listDevices, canPickSpeaker, mediaErrorMessage, audioConstraints } from '../webrtc/media';
 import { testConnection, interpret } from '../webrtc/connectionTest';
 import { callApi } from '../services/api';
+import { RINGTONES, previewRingtone } from '../utils/sounds';
 
 function Toggle({ label, desc, checked, onChange, disabled }) {
   return (
@@ -124,6 +125,17 @@ export default function Settings() {
 
         <h2 className="pt-4 text-sm font-semibold uppercase tracking-wide text-brand">Notifications</h2>
         <Toggle label="Sounds" desc="Ringtones and message tones." checked={s.sounds} onChange={(v) => s.update({ sounds: v })} />
+        <div className="rounded-xl bg-panel2 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div><span className="block font-medium">Calling ringtone</span><span className="text-sm text-mute">Choose the sound for incoming calls.</span></div>
+            <button className="btn-primary flex shrink-0 items-center gap-2 !min-h-0 !py-2 text-sm" onClick={() => previewRingtone(s.ringtone)} disabled={!s.sounds}>
+              <Volume2 size={16} />Preview
+            </button>
+          </div>
+          <select className="input" value={s.ringtone} disabled={!s.sounds} onChange={(e) => s.update({ ringtone: e.target.value })}>
+            {RINGTONES.map((ringtone) => <option key={ringtone.id} value={ringtone.id}>{ringtone.label}</option>)}
+          </select>
+        </div>
         <Toggle label="Push notifications" desc="Receive chat and incoming-call notifications while Pulse is in the background."
           checked={s.desktopNotifications && notifSupported && Notification.permission === 'granted'}
           disabled={!notifSupported || !('serviceWorker' in navigator) || !('PushManager' in window)}

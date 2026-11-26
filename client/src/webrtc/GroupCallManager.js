@@ -5,6 +5,9 @@ import { useAuthStore } from '../context/authStore';
 import { useCallStore } from '../context/callStore';
 import { useGroupCallStore, resetGroupCallStore } from '../context/groupCallStore';
 import { getCallMedia, stopStream } from './media';
+import { startRingtone, stopRingtone } from '../utils/sounds';
+import { useSettingsStore } from '../context/settingsStore';
+import { systemNotify } from '../utils/notify';
 
 const FALLBACK_ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 const set = (patch) => useGroupCallStore.setState(patch);
@@ -55,6 +58,7 @@ class GroupCallManager {
   async accept() {
     const invite = get();
     if (invite.phase !== 'incoming' || useCallStore.getState().status !== 'idle') return;
+    stopRingtone();
     try {
       const stream = await this.capture(invite.type);
       const response = await emitAck('group_call_join', { callId: invite.callId });
@@ -69,6 +73,7 @@ class GroupCallManager {
   }
 
   reject() {
+    stopRingtone();
     if (get().phase === 'incoming') getSocket()?.emit('group_call_decline', { callId: get().callId });
     this.endLocal();
   }
@@ -142,6 +147,7 @@ class GroupCallManager {
   }
 
   endLocal() {
+    stopRingtone();
     for (const pc of this.peers.values()) { pc.ontrack = null; pc.onicecandidate = null; pc.close(); }
     this.peers.clear();
     stopStream(this.rawStream);
@@ -165,6 +171,9 @@ class GroupCallManager {
         window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
         if (pushAction === 'accept') setTimeout(() => void this.accept(), 0);
         else setTimeout(() => this.reject(), 0);
+      } else {
+        if (useSettingsStore.getState().sounds) startRingtone(true, useSettingsStore.getState().ringtone);
+        systemNotify(`Incoming group ${invite.type} call`, `${invite.groupName || 'Your group'} is calling`, { tag: `group-call-${invite.callId}` });
       }
     });
     socket.on('group_call_peer_joined', ({ callId, participant }) => {

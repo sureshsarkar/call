@@ -580,7 +580,7 @@ class CallManager {
     socket.on('incoming_call', ({ callId, type, from }) => {
       if (this.busy || useGroupCallStore.getState().phase !== 'idle') { socket.emit('reject_call', { callId }); return; }
       set({ status: 'incoming', callId, type, peer: from, isCaller: false, connectedAt: null, remoteSharing: false, remoteMuted: false, remoteCameraOff: false, peerStatus: 'ok' });
-      if (useSettingsStore.getState().sounds) startRingtone(true);
+      if (useSettingsStore.getState().sounds) startRingtone(true, useSettingsStore.getState().ringtone);
       systemNotify(`Incoming ${type} call`, `${from.name} is calling you`, { tag: `call-${callId}` });
     });
 

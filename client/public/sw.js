@@ -57,6 +57,7 @@ self.addEventListener('push', (event) => {
     if (!call && Number(data.unread) > 0) { try { await self.navigator.setAppBadge?.(Number(data.unread)); } catch { /* badge API is optional */ } }
     await self.registration.showNotification(data.title || 'Pulse', {
       body: data.body || '', icon: '/favicon.svg', badge: '/favicon.svg', tag: data.tag || 'pulse', renotify: true,
+      silent: false,
       vibrate: call ? [500, 250, 500, 250, 700] : [150, 100, 150], requireInteraction: call,
       actions: call ? [{ action: 'accept', title: 'Answer' }, { action: 'reject', title: 'Reject' }] : [{ action: 'open', title: 'Open chat' }],
       data: { url: data.url || '/', kind: data.kind, callId: data.callId, type: data.type, from: data.from },
