@@ -18,6 +18,7 @@ import { groupCallManager } from '../webrtc/GroupCallManager';
 const idOf = (value) => String(value?._id ?? value ?? '');
 const memberUser = (member) => member?.user || member;
 const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const EMPTY_TYPING_IDS = Object.freeze([]);
 
 function GroupAttachment({ groupId, attachment, mine }) {
   const [url, setUrl] = useState('');
@@ -61,7 +62,7 @@ export default function GroupChatWindow() {
   const group = groups.find((item) => idOf(item._id) === String(groupId));
   const details = useGroupStore((state) => state.detailsById[groupId]);
   const thread = useGroupStore((state) => state.threads[groupId]);
-  const typingIds = useGroupStore((state) => state.typing[groupId] || []);
+  const typingIds = useGroupStore((state) => state.typing[groupId] || EMPTY_TYPING_IDS);
   const contacts = useChatStore((state) => state.contacts);
   const users = useChatStore((state) => state.usersById);
   const [reply, setReply] = useState(null);
