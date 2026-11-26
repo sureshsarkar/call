@@ -12,6 +12,7 @@ const initial = {
   cameraOff: false,
   noCamera: false,
   sharing: false,
+  videoFilter: 'none',
   cameraSwitching: false,
   relay: false, // media is going through a TURN relay
   quality: 'good', // good | fair | poor | critical (measured network quality)

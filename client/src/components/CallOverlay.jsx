@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Mic, MicOff, Video, VideoOff, PhoneOff, Phone, MonitorUp, MonitorOff, SwitchCamera, Settings2, Maximize2, Minimize2, WifiOff,
+  Mic, MicOff, Video, VideoOff, PhoneOff, Phone, MonitorUp, MonitorOff, SwitchCamera, Settings2, Sparkles, Maximize2, Minimize2, WifiOff,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import { useCallStore } from '../context/callStore';
@@ -13,6 +13,7 @@ import useCallTimer from '../hooks/useCallTimer';
 import useWakeLock from '../hooks/useWakeLock';
 import { vibrate } from '../utils/haptics';
 import { formatDuration } from '../utils/format';
+import { VIDEO_FILTERS, supportsLiveVideoFilters } from '../webrtc/videoFilters';
 
 /** <video>/<audio> bound to a MediaStream, honoring the chosen speaker where supported. */
 function Media({ stream, muted = false, audioOnly = false, className = '', contain = false, mirror = false }) {
@@ -96,6 +97,32 @@ function DevicePanel({ onClose }) {
   );
 }
 
+function FilterPanel({ selected, supported, sharing, onSelect, onClose }) {
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={onClose} />
+      <div className="sheet-up-m pb-safe fixed inset-x-0 bottom-0 z-50 space-y-3 rounded-t-3xl bg-[#101a20] p-5 shadow-2xl md:pop-in md:absolute md:inset-x-auto md:bottom-32 md:left-1/2 md:w-[22rem] md:-translate-x-1/2 md:rounded-2xl md:bg-black/85 md:pb-4 md:backdrop-blur">
+        <div className="mx-auto -mt-2 mb-1 h-1.5 w-10 rounded-full bg-white/20 md:hidden" />
+        <div className="flex items-center justify-between"><p className="font-semibold">Video filters</p><button onClick={onClose} className="text-xs text-white/60 hover:text-white">Close</button></div>
+        {!supported && <p className="rounded-lg bg-amber-400/10 p-3 text-xs text-amber-200">Live filters aren’t supported by this browser. Your call can continue without a filter.</p>}
+        {sharing && <p className="rounded-lg bg-white/10 p-3 text-xs text-white/70">The selected filter will apply to your camera when you stop sharing your screen.</p>}
+        <div className="grid grid-cols-2 gap-2">
+          {VIDEO_FILTERS.map((filter) => {
+            const disabled = filter.id !== 'none' && !supported;
+            return (
+              <button key={filter.id} type="button" disabled={disabled} aria-pressed={selected === filter.id}
+                onClick={() => void onSelect(filter.id)}
+                className={`rounded-xl px-3 py-3 text-sm font-medium transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40 ${selected === filter.id ? 'bg-brand text-bg' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                {filter.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function IncomingCall() {
   const { peer, type } = useCallStore();
   // ring the phone (Android) while the call is incoming
@@ -132,6 +159,7 @@ function ActiveCall() {
   const s = useCallStore();
   const screenSharingEnabled = useAppConfigStore((state) => state.config.features.screenSharing !== false);
   const [panel, setPanel] = useState(false);
+  const [filterPanel, setFilterPanel] = useState(false);
   const [full, setFull] = useState(false);
   const rootRef = useRef(null);
   const seconds = useCallTimer(s.connectedAt);
@@ -155,6 +183,7 @@ function ActiveCall() {
 
   // ---- WhatsApp-style layout: tap self-view to swap main/floating video, double-tap to flip the camera
   const localAvailable = isVideo && Boolean(s.localStream);
+  const filtersSupported = useMemo(() => supportsLiveVideoFilters(), []);
   const [swappedState, setSwapped] = useState(false);
   const swapped = swappedState && localAvailable; // my camera is the full-screen video
   const [corner, setCorner] = useState('tr'); // floating window corner: t/b + l/r
@@ -247,6 +276,11 @@ function ActiveCall() {
     return () => document.removeEventListener('fullscreenchange', h);
   }, []);
 
+  const selectVideoFilter = async (filterId) => {
+    const applied = await callManager.setVideoFilter(filterId);
+    if (applied) setFilterPanel(false);
+  };
+
   return (
     <div ref={rootRef} className="fixed inset-0 z-50 flex flex-col bg-[#0a0f12] text-white">
       {isVideo ? (
@@ -333,11 +367,13 @@ function ActiveCall() {
         <CtrlBtn onClick={() => { vibrate(8); callManager.toggleMute(); }} active={s.muted} label={s.muted ? 'Unmute' : 'Mute'}>{s.muted ? <MicOff size={22} /> : <Mic size={22} />}</CtrlBtn>
         {isVideo && <CtrlBtn onClick={() => callManager.toggleCamera()} active={s.cameraOff} disabled={s.noCamera} label={s.cameraOff ? 'Camera on' : 'Camera off'}>{s.cameraOff || s.noCamera ? <VideoOff size={22} /> : <Video size={22} />}</CtrlBtn>}
         {canFlip && <CtrlBtn onClick={flipCamera} label="Flip"><SwitchCamera size={22} /></CtrlBtn>}
+        {isVideo && <CtrlBtn onClick={() => { setPanel(false); setFilterPanel((open) => !open); }} active={filterPanel || s.videoFilter !== 'none'} disabled={!localAvailable || s.noCamera} label="Filters"><Sparkles size={22} /></CtrlBtn>}
         {isVideo && <CtrlBtn onClick={() => callManager.toggleScreenShare()} active={s.sharing} disabled={!s.sharing && (!shareCallReady || !screenSharingEnabled)} label={shareLabel}>{s.sharing ? <MonitorOff size={22} /> : <MonitorUp size={22} />}</CtrlBtn>}
-        <CtrlBtn onClick={() => setPanel((v) => !v)} active={panel} label="Devices"><Settings2 size={22} /></CtrlBtn>
+        <CtrlBtn onClick={() => { setFilterPanel(false); setPanel((v) => !v); }} active={panel} label="Devices"><Settings2 size={22} /></CtrlBtn>
         <CtrlBtn onClick={() => { vibrate(20); callManager.end(); }} danger label={s.status === 'outgoing' ? 'Cancel' : 'End'}><PhoneOff size={24} /></CtrlBtn>
       </div>
       {panel && <DevicePanel onClose={() => setPanel(false)} />}
+      {filterPanel && <FilterPanel selected={s.videoFilter} supported={filtersSupported} sharing={s.sharing} onSelect={selectVideoFilter} onClose={() => setFilterPanel(false)} />}
     </div>
   );
 }

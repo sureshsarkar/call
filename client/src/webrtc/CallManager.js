@@ -16,6 +16,7 @@ import {
   canShareScreen, audioConstraints, videoConstraints,
 } from './media';
 import { createRnnoisePipeline } from './audioProcessing';
+import { createVideoFilterPipeline, VIDEO_FILTERS } from './videoFilters';
 import { classify, sampleFromStats, QualityController, VIDEO_PROFILES, AUDIO_PROFILE, effectiveVideoProfile } from './networkQuality';
 
 const FALLBACK_ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
@@ -75,6 +76,9 @@ class CallManager {
     this.videoPausedByNetwork = false;
     this.onRelay = false; // media currently travels through a TURN relay (metered) -> data-saver video
     this.tuned = false;
+    this.videoFilterPipeline = null;
+    this.videoFilterTask = Promise.resolve();
+    this.videoFilterEpoch = (this.videoFilterEpoch || 0) + 1;
   }
 
   get busy() { return get().status !== 'idle'; }
@@ -127,6 +131,71 @@ class CallManager {
     }
   }
 
+  getOutgoingVideoTrack() {
+    return this.videoFilterPipeline?.track || this.cameraTrack;
+  }
+
+  enqueueVideoOperation(operation) {
+    const task = this.videoFilterTask.then(operation, operation);
+    this.videoFilterTask = task.catch(() => false);
+    return task;
+  }
+
+  setVideoFilter(filterId, expectedPipeline = null) {
+    return this.enqueueVideoOperation(() => this.applyVideoFilter(filterId, expectedPipeline));
+  }
+
+  async applyVideoFilter(filterId, expectedPipeline = null) {
+    const filter = VIDEO_FILTERS.find((item) => item.id === filterId);
+    if (!filter) return false;
+    if (expectedPipeline && this.videoFilterPipeline !== expectedPipeline) return false;
+    if (get().type !== 'video' || !this.cameraTrack) {
+      toast.error('Turn on your camera before choosing a video filter.');
+      return false;
+    }
+
+    const sourceTrack = this.cameraTrack;
+    const epoch = this.videoFilterEpoch;
+    let nextPipeline = null;
+    try {
+      if (filter.id !== 'none') {
+        let createdPipeline;
+        createdPipeline = await createVideoFilterPipeline(sourceTrack, filter.id, {
+          onPerformanceDegraded: () => {
+            if (this.videoFilterPipeline !== createdPipeline) return;
+            void this.setVideoFilter('none', createdPipeline).then((applied) => {
+              if (applied) toast('Video filters are slowing this device down. The filter was turned off; your call continues.');
+            });
+          },
+        });
+        nextPipeline = createdPipeline;
+      }
+      if (epoch !== this.videoFilterEpoch || this.cameraTrack !== sourceTrack) {
+        nextPipeline?.destroy();
+        return false;
+      }
+
+      const outgoingTrack = nextPipeline?.track || sourceTrack;
+      if (!get().sharing && this.videoSender) await this.videoSender.replaceTrack(outgoingTrack);
+      if (epoch !== this.videoFilterEpoch || this.cameraTrack !== sourceTrack) {
+        nextPipeline?.destroy();
+        return false;
+      }
+
+      const previousPipeline = this.videoFilterPipeline;
+      this.videoFilterPipeline = nextPipeline;
+      set(get().sharing
+        ? { videoFilter: filter.id }
+        : { videoFilter: filter.id, localStream: new MediaStream([outgoingTrack]) });
+      previousPipeline?.destroy();
+      return true;
+    } catch (error) {
+      nextPipeline?.destroy();
+      if (epoch === this.videoFilterEpoch) toast.error(`${error.message || 'Could not apply this video filter.'} Your call will continue without changing the current video.`);
+      return false;
+    }
+  }
+
   // ------------------------------------------------------------------ peer connection
   createPeerConnection() {
     const socket = getSocket();
@@ -164,7 +233,8 @@ class CallManager {
     // add outgoing tracks
     const stream = this.rawStream;
     this.audioSender = pc.addTrack(this.sendAudioTrack, stream);
-    if (this.cameraTrack) this.videoSender = pc.addTrack(this.cameraTrack, stream);
+    const outgoingVideoTrack = this.getOutgoingVideoTrack();
+    if (outgoingVideoTrack) this.videoSender = pc.addTrack(outgoingVideoTrack, new MediaStream([outgoingVideoTrack]));
 
     // never sit on "Connecting…" forever
     this.connectTimer = setTimeout(() => {
@@ -381,6 +451,9 @@ class CallManager {
 
   /** Release every resource: peer connection, tracks, audio graph, timers, ringtone. */
   cleanup() {
+    this.videoFilterEpoch += 1;
+    this.videoFilterPipeline?.destroy();
+    this.videoFilterPipeline = null;
     stopRingtone();
     this.stopRecovery();
     this.stopQualityMonitor();
@@ -480,15 +553,42 @@ class CallManager {
     }
   }
 
-  async swapCameraTrack(newTrack) {
+  swapCameraTrack(newTrack) {
+    const epoch = this.videoFilterEpoch;
+    return this.enqueueVideoOperation(() => {
+      if (epoch !== this.videoFilterEpoch) { newTrack.stop(); return false; }
+      return this.replaceCameraTrack(newTrack, epoch);
+    });
+  }
+
+  async replaceCameraTrack(newTrack, epoch) {
     newTrack.enabled = !get().cameraOff;
     newTrack.contentHint = 'motion';
     const old = this.cameraTrack;
-    this.cameraTrack = newTrack;
-    if (!get().sharing) {
-      await this.videoSender?.replaceTrack(newTrack);
-      set({ localStream: new MediaStream([newTrack]) });
+    const oldPipeline = this.videoFilterPipeline;
+    let nextPipeline = null;
+    let filterId = get().videoFilter;
+    if (filterId !== 'none') {
+      try { nextPipeline = await createVideoFilterPipeline(newTrack, filterId); }
+      catch (error) {
+        filterId = 'none';
+        toast.error(`${error.message || 'Live filters are unavailable.'} Continuing with the camera without a filter.`);
+      }
     }
+    if (epoch !== this.videoFilterEpoch) { nextPipeline?.destroy(); newTrack.stop(); return false; }
+    const outgoingTrack = nextPipeline?.track || newTrack;
+    try {
+      if (!get().sharing) await this.videoSender?.replaceTrack(outgoingTrack);
+    } catch (error) {
+      nextPipeline?.destroy();
+      newTrack.stop();
+      throw error;
+    }
+    this.cameraTrack = newTrack;
+    this.videoFilterPipeline = nextPipeline;
+    if (!get().sharing) set({ localStream: new MediaStream([outgoingTrack]), videoFilter: filterId });
+    else if (filterId !== get().videoFilter) set({ videoFilter: filterId });
+    oldPipeline?.destroy();
     old?.stop();
   }
 
@@ -521,7 +621,12 @@ class CallManager {
   }
 
   // ------------------------------------------------------------------ screen sharing
-  async startScreenShare() {
+  startScreenShare() {
+    const epoch = this.videoFilterEpoch;
+    return this.enqueueVideoOperation(() => epoch === this.videoFilterEpoch ? this.startScreenShareNow(epoch) : undefined);
+  }
+
+  async startScreenShareNow(epoch) {
     if (useAppConfigStore.getState().config.features.screenSharing === false) return toast.error('Screen sharing is disabled by the administrator');
     if (get().type !== 'video') return toast.error('Screen sharing is available in video calls');
     if (get().sharing) return undefined;
@@ -538,6 +643,7 @@ class CallManager {
     } catch (err) {
       return toast.error(screenErrorMessage(err));
     }
+    if (epoch !== this.videoFilterEpoch) { stopStream(stream); return undefined; }
     const track = stream.getVideoTracks()[0];
     if (!track) { stopStream(stream); return toast.error('The browser did not return a screen video track.'); }
     track.contentHint = 'detail'; // favor sharpness over frame rate for text
@@ -556,18 +662,26 @@ class CallManager {
     return undefined;
   }
 
-  async stopScreenShare() {
+  stopScreenShare() {
+    const epoch = this.videoFilterEpoch;
+    return this.enqueueVideoOperation(() => epoch === this.videoFilterEpoch ? this.stopScreenShareNow(epoch) : undefined);
+  }
+
+  async stopScreenShareNow(epoch) {
     if (!get().sharing) return;
     const track = this.screenTrack;
     this.screenTrack = null;
     if (track) track.onended = null;
     try {
-      if (this.cameraTrack && this.videoSender) await this.videoSender.replaceTrack(this.cameraTrack);
+      const cameraVideoTrack = this.getOutgoingVideoTrack();
+      if (cameraVideoTrack && this.videoSender) await this.videoSender.replaceTrack(cameraVideoTrack);
       else if (this.videoSender && this.pc) { this.pc.removeTrack(this.videoSender); this.videoSender = null; }
     } catch (err) { console.warn('[call] restoring camera failed', err); }
+    if (epoch !== this.videoFilterEpoch) return;
     stopStream(this.screenStream);
     this.screenStream = null;
-    set({ sharing: false, localStream: this.cameraTrack ? new MediaStream([this.cameraTrack]) : null });
+    const cameraVideoTrack = this.getOutgoingVideoTrack();
+    set({ sharing: false, localStream: cameraVideoTrack ? new MediaStream([cameraVideoTrack]) : null });
     getSocket()?.emit('stop_screen_share', { callId: get().callId });
   }
 
