@@ -48,7 +48,8 @@ function MessageBubble({ message, mine, onDelete, onRetry, onLongPress, onReply,
   }, [menu]);
 
   const deleted = message.deletedForEveryone;
-  const emojiOnly = !deleted && isEmojiOnly(message.text);
+  const text = typeof message.text === 'string' ? message.text : '';
+  const emojiOnly = !deleted && isEmojiOnly(text);
   const actionable = !deleted && message.status !== 'sending' && message.status !== 'failed';
 
   const cancelPress = () => { clearTimeout(press.current.timer); press.current.timer = null; };
@@ -113,7 +114,7 @@ function MessageBubble({ message, mine, onDelete, onRetry, onLongPress, onReply,
             </button>}
             {message.links?.map((l) => <LinkCard key={l.url} link={l} />)}
             <p className={`whitespace-pre-wrap break-words text-[15px] leading-snug ${emojiOnly ? 'emoji-only' : 'pr-20'}`}>
-              {tokenize(message.text).map((t, i) =>
+              {tokenize(text).map((t, i) =>
                 t.type === 'link' ? (
                   <a key={i} href={t.href} target="_blank" rel="noopener noreferrer nofollow" className="break-all text-sky-400 underline-offset-2 hover:underline">{t.value}</a>
                 ) : (

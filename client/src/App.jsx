@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import EmptyChat from './pages/EmptyChat';
 import ChatWindow from './components/ChatWindow';
 import GroupChatWindow from './components/GroupChatWindow';
+import GroupChatErrorBoundary from './components/GroupChatErrorBoundary';
 import { useAuthStore } from './context/authStore';
 import { setUnauthorizedHandler } from './services/api';
 import { callApi } from './services/api';
@@ -73,7 +74,7 @@ export default function App() {
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route index element={<EmptyChat />} />
           <Route path="chat/:userId" element={<ChatWindow />} />
-          <Route path="group/:groupId" element={<GroupChatWindow />} />
+          <Route path="group/:groupId" element={<GroupChatErrorBoundary><GroupChatWindow /></GroupChatErrorBoundary>} />
           <Route path="admin" element={<AdminPanel />} />
           <Route path="profile" element={<Profile />} />
           <Route path="settings" element={<Settings />} />

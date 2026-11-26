@@ -6,7 +6,21 @@ import { useAuthStore } from './authStore';
 
 const myId = () => String(useAuthStore.getState().user?._id || '');
 const idOf = (value) => String(value?._id ?? value ?? '');
-const normalize = (message) => ({ ...message, replyTo: message.reply_to_message_id || message.replyTo || null });
+const normalize = (message) => {
+  if (!message || typeof message !== 'object') return message;
+  const rawReply = message.reply_to_message_id || message.replyTo || null;
+  const replyTo = rawReply && typeof rawReply === 'object'
+    ? rawReply
+    : rawReply ? { _id: String(rawReply), unavailable: true } : null;
+  return {
+    ...message,
+    text: typeof message.text === 'string' ? message.text : '',
+    reactions: Array.isArray(message.reactions) ? message.reactions : [],
+    deliveredBy: Array.isArray(message.deliveredBy) ? message.deliveredBy : [],
+    readBy: Array.isArray(message.readBy) ? message.readBy : [],
+    replyTo,
+  };
+};
 const emptyThread = { messages: [], hasMore: false, loaded: false, loading: false };
 
 export const useGroupStore = create((set, get) => ({
