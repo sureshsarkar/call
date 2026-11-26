@@ -17,6 +17,7 @@ import {
 } from './media';
 import { createRnnoisePipeline } from './audioProcessing';
 import { createVideoFilterPipeline, VIDEO_FILTERS } from './videoFilters';
+import { FACE_EFFECTS } from './faceEffectOptions';
 import { classify, sampleFromStats, QualityController, VIDEO_PROFILES, AUDIO_PROFILE, effectiveVideoProfile } from './networkQuality';
 
 const FALLBACK_ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
@@ -77,6 +78,7 @@ class CallManager {
     this.onRelay = false; // media currently travels through a TURN relay (metered) -> data-saver video
     this.tuned = false;
     this.videoFilterPipeline = null;
+    this.videoFilterSourceTrack = null;
     this.videoFilterTask = Promise.resolve();
     this.videoFilterEpoch = (this.videoFilterEpoch || 0) + 1;
   }
@@ -135,6 +137,33 @@ class CallManager {
     return this.videoFilterPipeline?.track || this.cameraTrack;
   }
 
+  async createProcessingPipeline(track, colorFilter, faceEffect) {
+    let createdPipeline;
+    createdPipeline = await createVideoFilterPipeline(track, colorFilter, {
+      faceEffectId: faceEffect,
+      onFaceEffectLoading: (faceEffectLoading) => set({ faceEffectLoading }),
+      onFaceEffectError: (error) => {
+        if (this.videoFilterPipeline !== createdPipeline) return;
+        void this.setFaceEffect('none', createdPipeline).then((applied) => {
+          if (applied) toast(`Face tracking stopped${error?.message ? `: ${error.message}` : ''}. Your call continues without the effect.`);
+        });
+      },
+      onPerformanceDegraded: ({ faceEffectActive } = {}) => {
+        if (this.videoFilterPipeline !== createdPipeline) return;
+        if (faceEffectActive) {
+          void this.setFaceEffect('none', createdPipeline).then((applied) => {
+            if (applied) toast('Face effects are slowing this device down. The effect was turned off; your call continues.');
+          });
+        } else {
+          void this.setVideoFilter('none', createdPipeline).then((applied) => {
+            if (applied) toast('Video filters are slowing this device down. The filter was turned off; your call continues.');
+          });
+        }
+      },
+    });
+    return createdPipeline;
+  }
+
   enqueueVideoOperation(operation) {
     const task = this.videoFilterTask.then(operation, operation);
     this.videoFilterTask = task.catch(() => false);
@@ -142,34 +171,47 @@ class CallManager {
   }
 
   setVideoFilter(filterId, expectedPipeline = null) {
-    return this.enqueueVideoOperation(() => this.applyVideoFilter(filterId, expectedPipeline));
+    return this.enqueueVideoOperation(() => this.applyVideoProcessing({ videoFilter: filterId }, expectedPipeline));
   }
 
-  async applyVideoFilter(filterId, expectedPipeline = null) {
-    const filter = VIDEO_FILTERS.find((item) => item.id === filterId);
-    if (!filter) return false;
+  setFaceEffect(effectId, expectedPipeline = null) {
+    return this.enqueueVideoOperation(() => this.applyVideoProcessing({ faceEffect: effectId }, expectedPipeline));
+  }
+
+  async applyVideoProcessing(changes, expectedPipeline = null) {
     if (expectedPipeline && this.videoFilterPipeline !== expectedPipeline) return false;
-    if (get().type !== 'video' || !this.cameraTrack) {
-      toast.error('Turn on your camera before choosing a video filter.');
+    const current = get();
+    const nextFilter = changes.videoFilter ?? current.videoFilter;
+    const nextEffect = changes.faceEffect ?? current.faceEffect;
+    if (!VIDEO_FILTERS.some((item) => item.id === nextFilter) || !FACE_EFFECTS.some((item) => item.id === nextEffect)) return false;
+    if (get().type !== 'video' || (!this.cameraTrack && (nextFilter !== 'none' || nextEffect !== 'none'))) {
+      toast.error('Turn on your camera before choosing a video effect.');
       return false;
     }
 
     const sourceTrack = this.cameraTrack;
     const epoch = this.videoFilterEpoch;
+    const needsPipeline = nextFilter !== 'none' || nextEffect !== 'none';
+    const currentPipeline = this.videoFilterPipeline;
+
+    // The outgoing track remains stable while changing effects; update the existing canvas pipeline in place.
+    if (currentPipeline && this.videoFilterSourceTrack === sourceTrack && needsPipeline) {
+      try {
+        if (nextEffect !== current.faceEffect) await currentPipeline.setFaceEffect(nextEffect);
+        currentPipeline.setColorFilter(nextFilter);
+        if (epoch !== this.videoFilterEpoch || this.videoFilterPipeline !== currentPipeline) return false;
+        set({ videoFilter: nextFilter, faceEffect: nextEffect, faceEffectLoading: false });
+        return true;
+      } catch (error) {
+        set({ faceEffectLoading: false });
+        if (epoch === this.videoFilterEpoch) toast.error(`${error.message || 'Could not apply this video effect.'} Your call will continue without changing the current video.`);
+        return false;
+      }
+    }
+
     let nextPipeline = null;
     try {
-      if (filter.id !== 'none') {
-        let createdPipeline;
-        createdPipeline = await createVideoFilterPipeline(sourceTrack, filter.id, {
-          onPerformanceDegraded: () => {
-            if (this.videoFilterPipeline !== createdPipeline) return;
-            void this.setVideoFilter('none', createdPipeline).then((applied) => {
-              if (applied) toast('Video filters are slowing this device down. The filter was turned off; your call continues.');
-            });
-          },
-        });
-        nextPipeline = createdPipeline;
-      }
+      if (needsPipeline) nextPipeline = await this.createProcessingPipeline(sourceTrack, nextFilter, nextEffect);
       if (epoch !== this.videoFilterEpoch || this.cameraTrack !== sourceTrack) {
         nextPipeline?.destroy();
         return false;
@@ -184,14 +226,16 @@ class CallManager {
 
       const previousPipeline = this.videoFilterPipeline;
       this.videoFilterPipeline = nextPipeline;
+      this.videoFilterSourceTrack = nextPipeline ? sourceTrack : null;
       set(get().sharing
-        ? { videoFilter: filter.id }
-        : { videoFilter: filter.id, localStream: new MediaStream([outgoingTrack]) });
+        ? { videoFilter: nextFilter, faceEffect: nextEffect, faceEffectLoading: false }
+        : { videoFilter: nextFilter, faceEffect: nextEffect, faceEffectLoading: false, localStream: outgoingTrack ? new MediaStream([outgoingTrack]) : null });
       previousPipeline?.destroy();
       return true;
     } catch (error) {
       nextPipeline?.destroy();
-      if (epoch === this.videoFilterEpoch) toast.error(`${error.message || 'Could not apply this video filter.'} Your call will continue without changing the current video.`);
+      set({ faceEffectLoading: false });
+      if (epoch === this.videoFilterEpoch) toast.error(`${error.message || 'Could not apply this video effect.'} Your call will continue without changing the current video.`);
       return false;
     }
   }
@@ -568,11 +612,24 @@ class CallManager {
     const oldPipeline = this.videoFilterPipeline;
     let nextPipeline = null;
     let filterId = get().videoFilter;
-    if (filterId !== 'none') {
-      try { nextPipeline = await createVideoFilterPipeline(newTrack, filterId); }
-      catch (error) {
-        filterId = 'none';
-        toast.error(`${error.message || 'Live filters are unavailable.'} Continuing with the camera without a filter.`);
+    let effectId = get().faceEffect;
+    if (filterId !== 'none' || effectId !== 'none') {
+      try {
+        nextPipeline = await this.createProcessingPipeline(newTrack, filterId, effectId);
+      } catch (error) {
+        if (effectId !== 'none') {
+          effectId = 'none';
+          toast.error(`${error.message || 'Face tracking could not start on the selected camera.'} Continuing the call without the face effect.`);
+          try {
+            if (filterId !== 'none') nextPipeline = await this.createProcessingPipeline(newTrack, filterId, 'none');
+          } catch (filterError) {
+            filterId = 'none';
+            toast.error(`${filterError.message || 'Live filters are unavailable.'} Continuing with the camera without a filter.`);
+          }
+        } else {
+          filterId = 'none';
+          toast.error(`${error.message || 'Live filters are unavailable.'} Continuing with the camera without a filter.`);
+        }
       }
     }
     if (epoch !== this.videoFilterEpoch) { nextPipeline?.destroy(); newTrack.stop(); return false; }
@@ -586,8 +643,9 @@ class CallManager {
     }
     this.cameraTrack = newTrack;
     this.videoFilterPipeline = nextPipeline;
-    if (!get().sharing) set({ localStream: new MediaStream([outgoingTrack]), videoFilter: filterId });
-    else if (filterId !== get().videoFilter) set({ videoFilter: filterId });
+    this.videoFilterSourceTrack = nextPipeline ? newTrack : null;
+    if (!get().sharing) set({ localStream: new MediaStream([outgoingTrack]), videoFilter: filterId, faceEffect: effectId, faceEffectLoading: false });
+    else set({ videoFilter: filterId, faceEffect: effectId, faceEffectLoading: false });
     oldPipeline?.destroy();
     old?.stop();
   }
